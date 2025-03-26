@@ -311,3 +311,20 @@ def plot_bias_heatmaps(model, model_params, transformation,
 
     plt.tight_layout()
     plt.show()
+
+
+def best_labelling(A, Transforms, mode = 'C_graph'):
+	res = []
+	for T in Transforms:
+		G = TWSBInstance(A = T(A))
+
+		if mode == 'C_graph':
+			chernoff = G.C_graph
+		elif mode == 'C_embedding':
+			chernoff = G.C_embedding
+		else:
+			raise ValueError('Invalid mode')
+		res.append((T, G.Z_hat, chernoff))
+
+	best_idx = np.argmax([chernoff for _, _, chernoff in res])
+	return res[best_idx]
