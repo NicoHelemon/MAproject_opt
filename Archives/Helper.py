@@ -2,10 +2,10 @@ import numpy as np
 from itertools import product
 from scipy.sparse.linalg import eigsh
 from sklearn.mixture import GaussianMixture
-from sklearn.metrics.cluster import adjusted_rand_score
 
-def empirical_B_C(A, Z, K):
-	B, C = np.zeros((K, K)), np.zeros((K, K))
+def empirical_B_C(A, Z):
+	K = len(np.unique(Z))
+	B, C, Π = np.zeros((K, K)), np.zeros((K, K)), np.zeros((K, K))
 
 	t_idx = np.triu_indices_from(A, k=1)
 	Z_row, Z_col = Z[t_idx[0]], Z[t_idx[1]]
@@ -14,11 +14,14 @@ def empirical_B_C(A, Z, K):
 		mask = (Z_row == k) & (Z_col == l) | (Z_row == l) & (Z_col == k)
 		block_values = A[t_idx][mask].flatten()
 
+		if k == l:
+			Π[k, l] = np.count_nonzero(Z == k) / len(Z)
+
 		if block_values.size:
 			B[k, l] = block_values.mean()
 			C[k, l] = block_values.var(ddof = block_values.size > 1)
 
-	return B, C
+	return B, C, Π
 
 def spectral_embedding(A, d=2, mode = 'sqrt-sclaled'):
 	vals, vecs = eigsh(A, k=d, which='LM')
@@ -32,9 +35,6 @@ def spectral_embedding(A, d=2, mode = 'sqrt-sclaled'):
 def fit_GMM(X):
 	gmm = GaussianMixture(n_components=2, covariance_type='full').fit(X)
 	return gmm.predict(X), gmm.means_, gmm.covariances_
-
-def rand_index(Z_true, Z_pred):
-	return adjusted_rand_score(Z_true, Z_pred)
 
 def label_permutation(Z_true, Z_pred):
 	matches_no_swap = np.sum(Z_true == Z_pred)
