@@ -1,4 +1,13 @@
-from Objects.WSBM import *
+import numpy as np
+
+def pi_init(π):
+	if isinstance(π, float):
+		return np.array([[π, 0], [0, 1 - π]])
+	elif isinstance(π, np.ndarray) and π.shape == (2, 2):
+		if np.trace(π) == 1 and π[0, 1] == π[1, 0] == 0:
+			return π
+	else:
+		raise ValueError("Invalid π parameter")
 
 superscript_map = {
     "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶",

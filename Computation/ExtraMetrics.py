@@ -7,7 +7,7 @@ from Objects.WSBM import *
 
 def best_transform_metrics(m):
 	def stack_grids(m, metric):
-		return np.stack([m[t][metric] for t in TRANSFORMS], axis=-1)
+		return np.stack([m[t][metric] for t in TRANSFORMS[:-1]], axis=-1)
 
 	C_graph = stack_grids(m, 'C_graph')
 	C_embed = stack_grids(m, 'C_embed')
@@ -15,14 +15,14 @@ def best_transform_metrics(m):
 	max_Rand = np.max(Rand, axis=-1)
 
 	m['C_graph-Best Transform'] = {}
-	BT_arg_C_graph = np.argmax(C_graph, axis=-1)
+	BT_arg_C_graph = np.argmax(C_graph, axis=-1).astype(int)
 	m['C_graph-Best Transform']['Arg'] = BT_arg_C_graph
 	m['C_graph-Best Transform']['Rand'] = np.take_along_axis(Rand, BT_arg_C_graph[..., None], axis=-1).squeeze(-1)
 	m['C_graph-Best Transform']['Regret'] = max_Rand - m['C_graph-Best Transform']['Rand']
 
 	m['C_embed-Best Transform'] = {}
 	BT_arg_C_embed = np.argmax(C_embed, axis=-1)
-	m['C_embed-Best Transform']['Arg'] = BT_arg_C_embed
+	m['C_embed-Best Transform']['Arg'] = BT_arg_C_embed.astype(int)
 	m['C_embed-Best Transform']['Rand'] = np.take_along_axis(Rand, BT_arg_C_embed[..., None], axis=-1).squeeze(-1)
 	m['C_embed-Best Transform']['Regret'] = max_Rand - m['C_embed-Best Transform']['Rand']
 
