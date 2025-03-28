@@ -2,8 +2,10 @@ import numpy as np
 from scipy.stats import norm, lognorm, beta
 from scipy.integrate import quad_vec
 from itertools import product, permutations
+import seaborn as sns
 
 from .Transformations import *
+from Plotting.StringHelper import sub, sup
 
 # Constants I:
 
@@ -62,6 +64,8 @@ class WSBM(ABC):
 		pass
 
 class betaWSBM(WSBM):
+	param_name = 'α'
+
 	def __init__(self, ρ, Π, α, n = n):
 		# n: number of nodes
 		# ρ: probability of observing a link
@@ -75,7 +79,7 @@ class betaWSBM(WSBM):
 
 		self.α = alpha_init(α)
 
-		self.name = f"Beta-WSBM(α11 = {self.α[0, 0]}, α12 = {self.α[0, 1]})"
+		self.name = f'Beta-WSBM(α{sub(" 11")} = {self.α[0, 0]}, α{sub(" 12")} = {self.α[0, 1]})'
 
 	def __call__(self, seed=None):
 		np.random.seed(seed)
@@ -130,6 +134,8 @@ class betaWSBM(WSBM):
 			raise ValueError("Invalid transformation T")
 	
 class lognormWSBM(WSBM):
+	param_name = 'σ'
+
 	def __init__(self, ρ, Π, Σ, ExpMu = ExpMu, n = n):
 		# n: number of nodes
 		# ρ: probability of observing a link
@@ -144,7 +150,7 @@ class lognormWSBM(WSBM):
 		self.Σ = sigma_init(Σ)
 		self.ExpMu = ExpMu
 
-		self.name = f"Lognorm-WSBM(σ11 = {self.Σ[0, 0]}, σ12 = {self.Σ[0, 1]})"
+		self.name = f'Lognorm-WSBM(σ{sub(" 11")} = {self.Σ[0, 0]}, σ{sub(" 12")} = {self.Σ[0, 1]})'
 
 	def __call__(self, seed=None):
 		np.random.seed(seed)
@@ -218,8 +224,20 @@ SIGMAS = [(1, 0.5), (0.1, 0.5)]
 MODELS = [betaWSBM, lognormWSBM]
 MODELS_AND_PARAMS = list(product([betaWSBM], ALPHAS)) + list(product([lognormWSBM], SIGMAS))
 TRANSFORMS = [IdentityTransform(), OppositeTransform(), LogTransform(), ThresholdTransform(), RankTransform()]
+RHOS_PIS_MODELS = list(product(RHOS, PIS, MODELS))
 
 TRANSFORMS_ID = [t.id for t in TRANSFORMS]
 TRANSFORMS_MAP = {t.id : t for t in TRANSFORMS}
-METRICS_ID = ['ctrue', 'cgraph', 'cembed', 'rand']
+METRICS_ID = ['Rand', 'C_true', 'C_graph', 'C_embed']
+METRICS_NAME = ["Rand index", "True Chernoff information", "Chernoff graph-estimation", "Chernoff embedding-estimation"]
+METRICS_MAP = dict(zip(METRICS_ID, METRICS_NAME))
+METRICS_ID_COSMETIC_MAP = {'C_true' : f'C{sup("true")}', 'C_graph' : f'C{sup("graph")}', 'C_embed' : f'C{sup("embed")}'}
+
+BIASES = ['abs', 'rel', 'log']
+BIASES_NAME = ['Absolute bias', 'Relative bias', 'Log-ratio bias']
+BIASES_MAP = dict(zip(BIASES, BIASES_NAME))
+
+TRANSFORMS_CMAP = dict(zip(TRANSFORMS, sns.color_palette("tab10", len(TRANSFORMS))))
+RHOS_PIS_MODELS_CMAP = dict(zip(RHOS_PIS_MODELS, sns.color_palette("tab10", len(RHOS_PIS_MODELS))))
+
 		
