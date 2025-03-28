@@ -28,13 +28,13 @@ def simulate_in_grid(N, model, model_params, transformations):
 			A, Z = m(42)
 			for t in transformations:
 				G = TWSBMInstance(model = m, transformation = t, A = t(A), Z = Z)
-				metrics[f'{t.id}_ctrue'][i, j]  = G.C_true
-				metrics[f'{t.id}_cgraph'][i, j] = G.C_graph
-				metrics[f'{t.id}_cembed'][i, j] = G.C_embedding
-				metrics[f'{t.id}_rand'][i, j]   = G.RAND
+				metrics[f'{t.id}_C_true'][i, j]  = G.C_true
+				metrics[f'{t.id}_C_graph'][i, j] = G.C_graph
+				metrics[f'{t.id}_C_embed'][i, j] = G.C_embedding
+				metrics[f'{t.id}_Rand'][i, j]   = G.RAND
 
 			steps_done += 1
-			if steps_done % 10 == 0:
+			if steps_done % N == 0:
 				elapsed = time.time() - start_time
 				fraction_done = steps_done / total_steps
 				estimated_total_time = elapsed / fraction_done
