@@ -6,11 +6,13 @@ import ipywidgets as widgets
 from scipy.stats import spearmanr
 from matplotlib import colors
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from matplotlib.patches import Patch
+from matplotlib.colors import ListedColormap, BoundaryNorm
 
 from Objects.WSBM import *
 from .StringHelper import *
 
-RHOS_PIS_MODELS = list(product(RHOS[:1], PIS[:1], MODELS[:1]))
+RHOS_PIS_MODELS = list(product(RHOS[:1], PIS[:1], MODELS))
 n = 1000
 K = 2
 
@@ -109,7 +111,7 @@ def plot_scatter_Rand_vs_Chernoff(metrics, n_points_ratio_displayed = 1.0, n = n
 			x, y = x[x > 0], y[x > 0]
 
 			x = sigmoid(np.log(x))
-			ax.scatter(x, y, s=0.5, alpha=0.5, 
+			ax.scatter(x, y, s=0.5, alpha=0.5, color = RHOS_PIS_MODELS_CMAP[(rho, pi, model)],
 			  label=f'ρ={rho} π={pi} {model.__name__[:-4].capitalize()}\nS-corr = {spearmanr(x, y)[0]:.2f}')
 
 		if i == 0:
@@ -156,21 +158,23 @@ def plot_metrics_heatmap(rho, pi, model, transformation, metrics, shared = False
 			if corr_info:
 				corr, auc_corr, partial_corrs = metrics['Correlation']['Rand'][m_id]
 				ns, corrs = partial_corrs
+				min_corrs, max_corrs = np.min(corrs), np.max(corrs)
+				abs_max = min_corrs if abs(min_corrs) > abs(max_corrs) else max_corrs
 				ax_ins = ax.inset_axes([0.65, 0.675, 0.25, 0.25])
 				ax_ins.plot(ns, corrs)
 				ax_ins.set_xlabel(f"Top % C-largest\npoints considered", fontsize=6)
 				ax_ins.set_ylabel(f'S-corr(R, C top%)', fontsize=6)
-				ax_ins.set_ylim(None, 1)
+				ax_ins.set_ylim(-1.05, 1.05)
 				ax_ins.set_xticks([0, 50, 100])
-				ax_ins.set_yticks([0, 0.5, 1])
+				ax_ins.set_yticks([-1, 0, 1])
 				ax_ins.tick_params(axis='both', labelsize=4)
 				ax_ins.axhline(corr, color='blue', linestyle='-', linewidth=1, label=f'S-corr    = {corr:.2f}')
-				ax_ins.axhline(np.max(corrs), color='red', linestyle='-', linewidth=1, label=f"max S-c = {np.max(corrs):.2f}")
+				ax_ins.axhline(abs_max, color='red', linestyle='-', linewidth=1, label=f"max S-c = {abs_max:.2f}")
 				ax_ins.axhline(0, color='black', linestyle='-',  linewidth=0.5)
 
 				ax_ins.fill_between(ns, corrs, 0, facecolor='yellow', alpha=0.3)
 				ax_ins.plot([], [], marker='s', linestyle='None', markerfacecolor='yellow', 
-					label=f"AUC        = {auc_corr:.2f}", alpha=0.5)
+					label=f"AUC       = {auc_corr:.2f}", alpha=0.5)
 				leg = ax_ins.legend(fontsize=8, bbox_to_anchor=(0.635, -1, 0.5, 0.5))
 
 				for j, handle in enumerate(leg.legend_handles):
@@ -183,7 +187,7 @@ def plot_metrics_heatmap(rho, pi, model, transformation, metrics, shared = False
 						handle.set_markerfacecolor('yellow')
 						handle.set_alpha(0.5)
 
-				ax_ins.set_title(f"Spearman‑corr(R, {m_id})", fontsize=8)
+				ax_ins.set_title(f"Spearman‑corr(R, {METRICS_ID_COSMETIC_MAP[m_id]})", fontsize=8)
 
 		ax.set_title(METRICS_MAP[m_id])
 		ax.set_xticks(np.linspace(0, N, 5))
@@ -215,18 +219,21 @@ def plot_bias_heatmap(rho, pi, model, transformation, metrics, log = True, n = n
 	for ax, m_id in zip(axes[0], METRICS_ID[2:]):
 		corr, auc_corr, partial_corrs = metrics['Correlation']['C_true'][m_id]
 		ns, corrs = partial_corrs
+		min_corrs, max_corrs = np.min(corrs), np.max(corrs)
+		abs_max = min_corrs if abs(min_corrs) > abs(max_corrs) else max_corrs
 		ax.plot(ns, corrs)
 		ax.set_xlabel(f"Top % {METRICS_ID_COSMETIC_MAP[m_id]}-largest points considered")
 		ax.set_ylabel(f'S-correlation({METRICS_ID_COSMETIC_MAP["C_true"]}, {METRICS_ID_COSMETIC_MAP[m_id]} Top%)')
-		ax.set_ylim(min_corr - 0.1, 1.1)
+		ax.set_ylim(-1.05, 1.05)
 		ax.set_xticks([0, 25, 50, 75, 100])
-		ax.set_yticks([0, 0.25, 0.5, 0.75, 1])
+		ax.set_yticks([-1, -0.5, 0, 0.5, 1])
 		ax.axhline(corr, color='blue', linestyle='-', linewidth=1, label=f'S-corr    = {corr:.2f}')
-		ax.axhline(np.max(corrs), color='red', linestyle='-', linewidth=1, label=f"max S-c = {np.max(corrs):.2f}")
+		ax.axhline(abs_max, color='red', linestyle='-', linewidth=1, label=f"max S-c = {abs_max:.2f}")
+		ax.axhline(-1, color='black', linestyle='-',  linewidth=0.5)
 		ax.axhline(0, color='black', linestyle='-',  linewidth=0.5)
 		ax.axhline(1, color='black', linestyle='-',  linewidth=0.5)
 		ax.fill_between(ns, corrs, 0, facecolor='yellow', alpha=0.3)
-		ax.plot([], [], marker='s', linestyle='None', markerfacecolor='yellow', label=f"AUC        = {auc_corr:.2f}")
+		ax.plot([], [], marker='s', linestyle='None', markerfacecolor='yellow', label=f"AUC       = {auc_corr:.2f}")
 		leg = ax.legend(loc = 'upper right')
 
 		for j, handle in enumerate(leg.legend_handles):
@@ -277,6 +284,75 @@ def plot_bias_heatmap(rho, pi, model, transformation, metrics, log = True, n = n
 				spine.set_visible(True)
 				spine.set_linewidth(1)
 
+
+	plt.tight_layout()
+	plt.show()
+
+def plot_best_transform_heatmaps(rho, pi, model, metrics, n=n):
+	rows = ['C_graph-Best Transform', 'C_embed-Best Transform']
+	cols = ['Arg', 'Rand', 'Regret']
+
+	fig, axes = plt.subplots(2, 3, figsize=(16, 10), gridspec_kw={'width_ratios': [0.8, 1, 1]})
+	fig.set_dpi(300)
+	fig.suptitle(
+		f"Best‑Transform Metrics on Model: {model.__name__}\n" + model_str(n, rho, pi),
+		fontsize=14
+	)
+
+	for i, row in enumerate(rows):
+		for j, col in enumerate(cols):
+			ax = axes[i, j]
+			grid = metrics[row][col]
+			N = grid.shape[0]
+
+			if col == 'Arg':
+				cmap = ListedColormap(list(TRANSFORMS_CMAP.values())[:-1])
+				norm = BoundaryNorm(np.arange(-0.5, cmap.N + 0.5, 1), cmap.N)
+				ax.pcolormesh(grid, cmap = cmap, norm = norm, shading='auto')
+				area = np.bincount(grid.ravel(), minlength = len(TRANSFORMS)) / N ** 2
+				area_map = dict(zip(TRANSFORMS, area))
+				sorted_TRANSFORMS = sorted(TRANSFORMS, key=lambda t: area_map[t], reverse=True)
+				handles = [Patch(facecolor=TRANSFORMS_CMAP[t], label=f'{t.id}: {area_map[t]:.2f}') 
+			   			   for t in sorted_TRANSFORMS]
+				ax.legend(title = 'Transforms: Area',
+					handles=handles, loc="upper left", handlelength=1, handleheight=1)
+			elif col == 'Rand':
+				norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+				sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Reds')
+
+				mean_rand_transforms_map = {t: np.mean(metrics[t]['Rand'].ravel()) for t in TRANSFORMS}
+				mean_rand_transforms_map['Argmax'] = np.mean(grid.ravel())
+				case = lambda t : t.id if t != 'Argmax' else 'Best'
+				sorted_TRANSFORMS = sorted(TRANSFORMS + ['Argmax'], key=lambda t: mean_rand_transforms_map[t], reverse=True)
+				handles = [Patch(facecolor=TRANSFORMS_CMAP[t], label=f'{case(t)}: {mean_rand_transforms_map[t]:.2f}') 
+			   			   for t in sorted_TRANSFORMS]
+				ax.legend(title = 'Transforms: Avg(Rand)}', handles=handles, loc="upper left", handlelength=1, handleheight=1)
+
+			else:
+				norm = colors.Normalize(vmin=0, vmax=1, clip=True)
+				sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Purples')
+				title = (f'Avg(Regret) = {np.mean(grid.ravel()):.2f}\n'
+						 f'Area(Regret > 0) = {np.count_nonzero(grid > 0) / N ** 2:.2f}')
+				ax.legend(title = title, loc="upper left")
+
+			title = f'{METRICS_ID_COSMETIC_MAP[row[:7]]}-Best Transform{": " + col if col != "Arg" else ""}'
+			ax.set_title(title)
+
+			ticks = np.linspace(0, N, 5)
+			labels = np.linspace(0, 1, 5).round(2)
+			ax.set_xticks(ticks); ax.set_xticklabels(labels)
+			ax.set_yticks(ticks); ax.set_yticklabels(labels)
+			if col != 'Arg':
+				ax.invert_yaxis()
+
+			if i == 1:
+				ax.set_xlabel(f"{model.param_name}{sub(' 12')}", fontsize=12)
+			if j == 0:
+				ax.set_ylabel(f"{model.param_name}{sub(' 11')}", fontsize=12)
+
+			for spine in ax.spines.values():
+				spine.set_visible(True)
+				spine.set_linewidth(1)
 
 	plt.tight_layout()
 	plt.show()
