@@ -10,24 +10,44 @@ RHOS_PIS_MODELS = list(product(RHOS, PIS, MODELS))
 
 def best_transform_metrics(m):
 	def stack_grids(m, metric):
-		return np.stack([m[t][metric] for t in TRANSFORMS[:-1]], axis=-1)
+		return np.stack([m[t][metric] for t in TRANSFORMS], axis=-1)
 
-	C_graph = stack_grids(m, 'C_graph')
-	C_embed = stack_grids(m, 'C_embed')
-	Rand    = stack_grids(m, 'Rand')
-	max_Rand = np.max(Rand, axis=-1)
+	Rand = stack_grids(m, 'Rand')
+	m['Rand Max'] = np.max(Rand, axis=-1)
 
-	m['C_graph-Best Transform'] = {}
-	BT_arg_C_graph = np.argmax(C_graph, axis=-1).astype(int)
-	m['C_graph-Best Transform']['Arg'] = BT_arg_C_graph
-	m['C_graph-Best Transform']['Rand'] = np.take_along_axis(Rand, BT_arg_C_graph[..., None], axis=-1).squeeze(-1)
-	m['C_graph-Best Transform']['Regret'] = max_Rand - m['C_graph-Best Transform']['Rand']
+	for t in TRANSFORMS:
+		m[t]['Ahead Ratio'] = np.mean(m[t]['Rand'] == m['Rand Max'])
 
-	m['C_embed-Best Transform'] = {}
-	BT_arg_C_embed = np.argmax(C_embed, axis=-1)
-	m['C_embed-Best Transform']['Arg'] = BT_arg_C_embed.astype(int)
-	m['C_embed-Best Transform']['Rand'] = np.take_along_axis(Rand, BT_arg_C_embed[..., None], axis=-1).squeeze(-1)
-	m['C_embed-Best Transform']['Regret'] = max_Rand - m['C_embed-Best Transform']['Rand']
+	for C in ['C_graph', 'C_embed']:
+		m[f'{C}-Best Transform'] = {}
+		mBestC = m[f'{C}-Best Transform']
+		mBestC['Arg'] = np.argmax(stack_grids(m, C), axis=-1).astype(int)
+		mBestC['Transform Area'] = np.bincount(mBestC['Arg'].ravel(), minlength=len(TRANSFORMS)) / np.prod(mBestC['Arg'].shape)
+		mBestC['Rand'] = np.take_along_axis(Rand, mBestC['Arg'][..., None], axis=-1).squeeze(-1)
+		mBestC['Rand Avg'] = np.mean(mBestC['Rand'])
+
+		regret = m['Rand Max'] - mBestC['Rand']
+		mBestC['Regret'] = regret
+		mBestC['Regret Avg'] = np.mean(regret)
+		mBestC['Regret Area'] = np.count_nonzero(regret) / np.prod(regret.shape)
+		mBestC['Regret Avg on Positive Regret'] = np.mean(regret[regret > 0])
+		mBestC['Rand Avg on Positive Regret'] = np.mean(mBestC['Rand'][regret > 0])
+		mBestC['Rand Avg on Null Regret'] = np.mean(mBestC['Rand'][regret == 0])
+
+		mBestC['Ahead Ratio'] = np.mean(mBestC['Rand'] == m['Rand Max'])
+
+		for t in TRANSFORMS:
+			mBestC[t] = {}
+			idx_t = mBestC['Arg'] == TRANSFORMS.index(t)
+			mBestC[t]['Rand Avg'] = np.mean(mBestC['Rand'][idx_t])
+			regret_t = regret[idx_t]
+			mBestC[t]['Regret Avg'] = np.mean(regret_t)
+			# Relative to total area vs relative to area of the best transform (... /np.count_nonzero(idx_t))
+			mBestC[t]['Regret Area'] = np.count_nonzero(regret_t) / np.prod(regret.shape)
+			mBestC[t]['Regret Avg on Positive Regret'] = np.mean(regret_t[regret_t > 0])
+			mBestC[t]['Rand Avg on Positive Regret'] = np.mean(mBestC['Rand'][idx_t & (regret > 0)])
+			mBestC[t]['Rand Avg on Null Regret'] = np.mean(mBestC['Rand'][idx_t & (regret == 0)])
+
 
 	return m
 

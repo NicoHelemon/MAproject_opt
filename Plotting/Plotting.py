@@ -365,8 +365,7 @@ def plot_best_transform_heatmaps(rho, pi, model, metrics, n=n):
 				cmap = ListedColormap(list(TRANSFORMS_CMAP.values())[:-1])
 				norm = BoundaryNorm(np.arange(-0.5, cmap.N + 0.5, 1), cmap.N)
 				ax.pcolormesh(grid, cmap = cmap, norm = norm, shading='auto')
-				area = np.bincount(grid.ravel(), minlength = len(TRANSFORMS)) / N ** 2
-				area_map = dict(zip(TRANSFORMS, area))
+				area_map = dict(zip(TRANSFORMS, metrics[row]['Transform Area']))
 				sorted_TRANSFORMS = sorted(TRANSFORMS, key=lambda t: area_map[t], reverse=True)
 				handles = [Patch(facecolor=TRANSFORMS_CMAP[t], label=f'{t.id}: {area_map[t]:.2f}') 
 			   			   for t in sorted_TRANSFORMS]
@@ -377,7 +376,7 @@ def plot_best_transform_heatmaps(rho, pi, model, metrics, n=n):
 				sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Reds')
 
 				mean_rand_transforms_map = {t: np.mean(metrics[t]['Rand']) for t in TRANSFORMS}
-				mean_rand_transforms_map['Argmax'] = np.mean(grid)
+				mean_rand_transforms_map['Argmax'] = metrics[row]['Rand Avg']
 				case = lambda t : t.id if t != 'Argmax' else 'Best'
 				sorted_TRANSFORMS = sorted(TRANSFORMS + ['Argmax'], key=lambda t: mean_rand_transforms_map[t], reverse=True)
 				handles = [Patch(facecolor=TRANSFORMS_CMAP[t], label=f'{case(t)}: {mean_rand_transforms_map[t]:.2f}') 
@@ -387,9 +386,9 @@ def plot_best_transform_heatmaps(rho, pi, model, metrics, n=n):
 			else:
 				norm = colors.Normalize(vmin=0, vmax=1, clip=True)
 				sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Purples')
-				avg_regret = f'Avg(Reg) = {np.mean(grid):.2f}'
-				area_positive_r = f'Area(Reg>0) = {np.count_nonzero(grid > 0) / N ** 2:.2f}'
-				avg_positive_r = f'Avg(Reg[Reg>0]) = {np.mean(grid[grid > 0]):.2f}'
+				avg_regret = f"Avg(Reg) = {metrics[row]['Regret Avg']:.2f}"
+				area_positive_r = f"Area(Reg>0) = {metrics[row]['Regret Area']:.2f}"
+				avg_positive_r = f"Avg(Reg[Reg>0]) = {metrics[row]['Regret Avg on Positive Regret']:.2f}"
 
 				handle_avg = mpatches.Patch(facecolor='none', edgecolor='none', label=avg_regret)
 				handle_area = mpatches.Patch(facecolor='none', edgecolor='none', label=area_positive_r)
@@ -421,38 +420,36 @@ def plot_best_transform_heatmaps(rho, pi, model, metrics, n=n):
 	save_file('Plots/Best_Transform', f'Grid_{model.name}_{rho}_{pi}', dpi=300)
 
 def plot_best_transform_lines(rho, pi, model, metrics, param, n=n):
-		rows = ['C_graph-Best Transform', 'C_embed-Best Transform']
+		chernoffs = ['C_graph', 'C_embed']
 		
 		fig, axes = plt.subplots(2, 1, figsize=(10, 12))
 		fig.suptitle(f"Rands of Transforms on Model: {model.name}\n" + model_str(n, rho, pi), fontsize=14)
 		
-		for ax, row in zip(axes, rows):
-			y_best = metrics[row]['Rand']
+		for ax, C in zip(axes, chernoffs):
+			mBestC = metrics[f'{C}-Best Transform']
+			y_best = mBestC['Rand']
 			N = len(y_best)
 			x = np.linspace(0.01, 1, N)
 			
-			max_rand = np.max(np.array([metrics[t]['Rand'] for t in TRANSFORMS]), axis=0)
 			
 			for t in TRANSFORMS:
 				y = metrics[t]['Rand']
 				ax.plot(x, y,
-						label=f"{t.name}:\n Avg(Rand) = {np.mean(y):.2f}, Ahead Ratio = {np.mean(y == max_rand):.2f}",
+						label=f"{t.name}:\n Avg(Rand) = {np.mean(y):.2f}, Ahead Ratio = {metrics[t]['Ahead Ratio']:.2f}",
 						color=TRANSFORMS_CMAP[t],
 						linewidth=2)
 			
-			regret_area = np.trapz(max_rand - y_best, x)
-			
 			ax.plot(x, y_best,
 					label=(f"Best Transform:\n"
-						   f"Avg(Rand) = {np.mean(y_best):.2f}, Ahead Ratio = {np.mean(y_best == max_rand):.2f}\n"
-						   f"Area(Regret) = {regret_area:.2f}"),
+						   f"Avg(Rand) = {mBestC['Rand Avg']:.2f}, Ahead Ratio = {mBestC['Ahead Ratio']:.2f}\n"
+						   f"Area(Regret) = {mBestC['Regret Avg']:.2f}"),
 					color='black',
 					linewidth=6,
 					alpha = 0.3)
 			
-			ax.fill_between(x, y_best, max_rand, color='purple', alpha=0.3)
+			ax.fill_between(x, y_best, metrics['Rand Max'], color='purple', alpha=0.3)
 			
-			title = f"Best Transform according to {METRICS_ID_COSMETIC_MAP[row[:7]]}"
+			title = f"Best Transform according to {METRICS_ID_COSMETIC_MAP[C]}"
 			ax.set_title(title, fontsize=12)
 			ax.set_xlabel(f'{model.param_name}{sub(" " + param)}', fontsize=12)
 			ax.set_ylabel("Rand index", fontsize=12)
