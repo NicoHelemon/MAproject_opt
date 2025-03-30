@@ -5,6 +5,9 @@ from sklearn.metrics import auc
 
 from Objects.WSBM import *
 
+PIS = PIS[:1]
+RHOS_PIS_MODELS = list(product(RHOS, PIS, MODELS))
+
 def best_transform_metrics(m):
 	def stack_grids(m, metric):
 		return np.stack([m[t][metric] for t in TRANSFORMS[:-1]], axis=-1)
@@ -71,3 +74,36 @@ def correlation(m):
 	m['Correlation']['C_true'] = {metric: partial_correlation(m['C_true'], m[metric]) for metric in ['C_graph', 'C_embed']}
 
 	return m
+
+def aggregate_metrics(metrics):
+	for (rho, pi, m), t in product(RHOS_PIS_MODELS, TRANSFORMS):
+		metrics[f'rho:{rho}'] = {}
+		metrics[f'pi:{pi}']  = {}
+		metrics[m]   = {}
+		metrics[t]   = {}
+			
+	for m_id in METRICS_ID:
+		metrics[m_id] = np.concatenate([metrics[rpm][t][m_id].ravel() 
+										for rpm, t in product(RHOS_PIS_MODELS, TRANSFORMS)])
+		
+		for rpm in RHOS_PIS_MODELS:
+			metrics[rpm][m_id] = np.concatenate([metrics[rpm][t][m_id].ravel() 
+												 for t in TRANSFORMS])
+			
+		for rho in RHOS:
+			metrics[f'rho:{rho}'][m_id] = np.concatenate([metrics[(rho, pi, m)][t][m_id].ravel() 
+												 for pi, m, t in product(PIS, MODELS, TRANSFORMS)])
+			
+		for pi in PIS:
+			metrics[f'pi:{pi}'][m_id] = np.concatenate([metrics[(rho, pi, m)][t][m_id].ravel()
+												 for rho, m, t in product(RHOS, MODELS, TRANSFORMS)])
+			
+		for model in MODELS:
+			metrics[model][m_id] = np.concatenate([metrics[(rho, pi, model)][t][m_id].ravel() 
+												   for rho, pi, t in product(RHOS, PIS, TRANSFORMS)])
+		
+		for t in TRANSFORMS:
+			metrics[t][m_id] = np.concatenate([metrics[rpm][t][m_id].ravel() 
+											   for rpm in RHOS_PIS_MODELS])
+			
+	return metrics

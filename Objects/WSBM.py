@@ -65,6 +65,7 @@ class WSBM(ABC):
 
 class betaWSBM(WSBM):
 	param_name = 'α'
+	name = 'Beta'
 
 	def __init__(self, ρ, Π, α, n = n):
 		# n: number of nodes
@@ -135,6 +136,7 @@ class betaWSBM(WSBM):
 	
 class lognormWSBM(WSBM):
 	param_name = 'σ'
+	name = 'LogN'
 
 	def __init__(self, ρ, Π, Σ, ExpMu = ExpMu, n = n):
 		# n: number of nodes

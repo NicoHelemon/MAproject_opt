@@ -8,13 +8,25 @@ from matplotlib import colors
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.patches import Patch
 from matplotlib.colors import ListedColormap, BoundaryNorm
+import matplotlib.patches as mpatches
+from matplotlib import cm
+from pathlib import Path
 
 from Objects.WSBM import *
 from .StringHelper import *
 
-RHOS_PIS_MODELS = list(product(RHOS[:1], PIS[:1], MODELS))
+PIS = PIS[:1]
+RHOS_PIS_MODELS = list(product(RHOS, PIS, MODELS))
 n = 1000
 K = 2
+
+def save_file(out_path, file_name, dpi = 200, eps = False, clf = True):
+	Path(out_path).mkdir(parents = True, exist_ok = True)
+
+	file_name = file_name.replace('.', '')
+	plt.savefig(f'{out_path}/{file_name}.png', dpi=dpi)
+	if eps: plt.savefig(out_path + f'/{file_name}.eps'.replace(' ', '_'), dpi=dpi)
+	if clf: plt.clf()
 
 def plot_embedding(rho, pi, metrics, n = n):
 	def label_permutation(Z_true, Z_pred):
@@ -65,80 +77,128 @@ def plot_embedding(rho, pi, metrics, n = n):
 
 	widgets.interact(switch, mode=['Truth', 'Prediction'])
 
-def plot_scatter_Rand_vs_Chernoff(metrics, n_points_ratio_displayed = 1.0, n = n, K = K):
-	skip = int(np.ceil(1/n_points_ratio_displayed))
-	λ, b = 1, -7
-	def sigmoid(x, λ = λ, b = b): return 1/(1+np.exp(-λ*(x-b)))
+def plot_scatter_Rand_vs_Chernoff(metrics, n_points_ratio_displayed=1.0, C_transform = 'Sigmoid-Ln', n=n, K=K):
 
-	n_points =  len(metrics['Rand'][::skip])
+	if C_transform == 'Sigmoid-Ln':
+		λ, b = 1, -7
+		def transform(x, λ=λ, b=b):
+			return 1 / (1 + np.exp(-λ * (np.log(x) - b)))
+	elif C_transform == 'Ln':
+		def transform(x):
+			return np.log(x)
+	else:
+		raise ValueError("Invalid C_transform. Choose 'Sigmoid-Ln' or 'Ln'.")
+
+	skip = int(np.ceil(1 / n_points_ratio_displayed))
+	n_points = len(metrics['Rand'][::skip])
 	n_points_ratio_displayed_str = ""
 	if n_points_ratio_displayed < 1.0:
-		n_points_ratio_displayed_str = f" ({n_points_ratio_displayed * 100:.0f}% of total)"
+		n_points_ratio_displayed_str = f" ({n_points_ratio_displayed * 100:.0f}% du total)"
 
-	fig, axes = plt.subplots(2, 3, figsize=(18, 14))
+	fig, axes = plt.subplots(5, 3, figsize=(18, 30))
 	global_title = (f"Rand vs Chernoff information scatter plots\n"
-					f"For WSBM graphs of size n = {n}, with K = {2} communities\n"
-					f"Number of points displayed (per plot): {n_points}{n_points_ratio_displayed_str}\n")
+					f"For WSBM graphs of size n = {n}, with K = {K} communities\n"
+					f"Number of points displayed (per plot): {n_points}{n_points_ratio_displayed_str}\n\n")
 	fig.suptitle(global_title, fontsize=20)
-
-	for i, (ax, m_id) in enumerate(zip(axes[0], METRICS_ID[1:])):
-		for t in TRANSFORMS:
-			x, y = metrics[t][m_id], metrics[t]['Rand']
-			x, y = x[::skip], y[::skip]
-			x, y = x[x > 0], y[x > 0]
-
-			x = sigmoid(np.log(x))
-			ax.scatter(x, y, s=0.5, alpha=0.5, color=TRANSFORMS_CMAP[t],
-			  label=f'{t.name}\nS-corr = {spearmanr(x, y)[0]:.2f}')
-
-		ax.set_title(f'{METRICS_MAP[m_id]}\nSpearman correlation = {spearmanr(metrics[m_id], metrics["Rand"])[0]:.2f}\n')
-		#ax.set_xlabel(f'Sigmoid{{λ={λ}}}(ln({m_id}) - {abs(b)})\n', fontsize=12)
-		if i == 0:
-			ax.set_ylabel(METRICS_MAP['Rand'], fontsize=12)
-		ax.set_xlim(0, 1)
+	
+	def scatter_polishing(ax, i):
+		if i == 0: ax.set_ylabel(METRICS_MAP['Rand'], fontsize=12)
+		if C_transform == 'Sigmoid-Ln':
+			vmin = 0.0
+			vmax = 1.0
+		else:
+			vals = np.concatenate([metrics[m_id] for m_id in METRICS_ID[1:]])
+			vals = vals[vals > 0]
+			vmin = np.log(np.min(vals))
+			vmax = np.log(np.max(vals))
+		ax.set_xlim(vmin, vmax)
 		ax.grid(True, linewidth=0.5)
-		leg = ax.legend(scatterpoints=1, markerscale=8)
+		leg = ax.legend(scatterpoints=1, markerscale=8, loc = 'upper left')
 		for hand in leg.legend_handles:
 			hand.set_alpha(1)
 		for spine in ax.spines.values():
 			spine.set_visible(True)
 			spine.set_linewidth(1)
+
+	def get_xysc(key, m_id):
+		x, y = metrics[key][m_id][::skip], metrics[key]['Rand'][::skip]
+		x, y = x[x>0], y[x>0]
+		s_corr = spearmanr(x, y)[0]
+		x = transform(x)
+		return x, y, s_corr
+	
+	for i, (ax, m_id) in enumerate(zip(axes[0], METRICS_ID[1:])):
+		cmap = cm.magma
+		nc = len(RHOS_PIS_MODELS)
+		for j, (rho, pi, model) in enumerate(RHOS_PIS_MODELS):
+			x, y, s_corr = get_xysc((rho, pi, model), m_id)
+			ax.scatter(x, y, s=0.5, alpha=0.5,
+					   color = cmap(j / nc),
+					   label = f'ρ={rho} π={pi} {model.name}\nS-corr = {s_corr:.2f}')
+		scatter_polishing(ax, i)
+		ax.set_title(f'{METRICS_MAP[m_id]}\nSpearman correlation = {spearmanr(metrics[m_id], metrics["Rand"])[0]:.2f}\n', fontsize=12)
 
 	for i, (ax, m_id) in enumerate(zip(axes[1], METRICS_ID[1:])):
-		for rho, pi, model in RHOS_PIS_MODELS:
-			x, y = metrics[(rho, pi, model)][m_id], metrics[(rho, pi, model)]['Rand']
-			x, y = x[::skip], y[::skip]
-			x, y = x[x > 0], y[x > 0]
+		cmap = cm.viridis
+		nc = len(RHOS)
+		for j, rho in enumerate(RHOS):
+			x, y, s_corr = get_xysc(f'rho:{rho}', m_id)
+			ax.scatter(x, y, s=0.5, alpha=0.5,
+					   color = cmap(j / nc),
+					   label = f'ρ = {rho}\nS-corr = {s_corr:.2f}')
+			
+		scatter_polishing(ax, i)
 
-			x = sigmoid(np.log(x))
-			ax.scatter(x, y, s=0.5, alpha=0.5, color = RHOS_PIS_MODELS_CMAP[(rho, pi, model)],
-			  label=f'ρ={rho} π={pi} {model.__name__[:-4].capitalize()}\nS-corr = {spearmanr(x, y)[0]:.2f}')
+	for i, (ax, m_id) in enumerate(zip(axes[2], METRICS_ID[1:])):
+		cmap = cm.plasma
+		nc = len(PIS)
+		for j, pi in enumerate(PIS):
+			x, y, s_corr = get_xysc(f'pi:{pi}', m_id)
+			ax.scatter(x, y, s=0.5, alpha=0.5,
+					   color = cmap(j / nc),
+					   label = f'π = {pi}\nS-corr = {s_corr:.2f}')
+			
+		scatter_polishing(ax, i)
 
-		if i == 0:
-			ax.set_ylabel(METRICS_MAP['Rand'], fontsize=12)
-		ax.set_xlim(0, 1)
-		ax.set_xlabel(f'\n Sigmoid(ln({METRICS_ID_COSMETIC_MAP[m_id]}))\n', fontsize=12)
-		ax.grid(True, linewidth=0.5)
-		ax.legend(scatterpoints=1, markerscale=8)
-		for hand in leg.legend_handles:
-			hand.set_alpha(1)
-		for spine in ax.spines.values():
-			spine.set_visible(True)
-			spine.set_linewidth(1)
+	for i, (ax, m_id) in enumerate(zip(axes[3], METRICS_ID[1:])):
+		cmap = cm.inferno
+		nc = len(MODELS)
+		for j, model in enumerate(MODELS):
+			x, y, s_corr = get_xysc(model, m_id)
+			ax.scatter(x, y, s=0.5, alpha=0.5,
+					   color = cmap(j / nc),
+					   label = f'{model.name}\nS-corr = {s_corr:.2f}')
+			
+		scatter_polishing(ax, i)
 
-	#plt.tight_layout(rect=[0, 0, 1, 0.93])
+	def transform_str(m_id):
+		m_id_str = METRICS_ID_COSMETIC_MAP[m_id]
+		if C_transform == 'Sigmoid-Ln':
+			return f'\nSigmoid(ln({m_id_str}))'
+		else:
+			return f'\nln({m_id_str})'
+
+	for i, (ax, m_id) in enumerate(zip(axes[4], METRICS_ID[1:])):
+		for t in TRANSFORMS:
+			x, y, s_corr = get_xysc(t, m_id)
+			ax.scatter(x, y, s=0.5, alpha=0.5,
+					   color = TRANSFORMS_CMAP[t],
+					   label = f'{t.name}\nS-corr = {s_corr:.2f}')
+			
+		scatter_polishing(ax, i)
+		ax.set_xlabel(transform_str(m_id), fontsize=12)
+
 	plt.tight_layout()
-	plt.show()
+	save_file('Plots', f'Rand_vs_Chernoff_{C_transform}', dpi=300)
 
 def plot_metrics_heatmap(rho, pi, model, transformation, metrics, shared = False, log = False, corr_info = True, n = n):
 	if shared:
-		values = np.concatenate([metrics[m_id].ravel() for m_id in METRICS_ID[1:]])
+		values = np.concatenate([metrics[m_id] for m_id in METRICS_ID[1:]])
 		vmin, vmax = np.min(values[values > 0]), np.max(values)
 	else:
 		vmin = vmax = None
 	
 	fig, axes = plt.subplots(2, 2, figsize=(11.5, 10))
-	fig.set_dpi(300)
 	axes = axes.flatten()
 
 	suptitle = f"Metrics heatmaps\n" + model_str(n, rho, pi, model, transformation)
@@ -204,7 +264,7 @@ def plot_metrics_heatmap(rho, pi, model, transformation, metrics, shared = False
 			spine.set_linewidth(1)
 	
 	plt.tight_layout()
-	plt.show()
+	save_file('Plots/Metrics_heatmap', f'{model.name}_{rho}_{pi}_{transformation.id}', dpi=300)
 
 def plot_bias_heatmap(rho, pi, model, transformation, metrics, log = True, n = n):
 	fig, axes = plt.subplots(4, 2, figsize=(12, 20))
@@ -212,9 +272,6 @@ def plot_bias_heatmap(rho, pi, model, transformation, metrics, log = True, n = n
 	suptitle = (f"Bias of Chernoff information estimators vs true Chernoff information\n"
 				f"{model_str(n, rho, pi, model, transformation)}")
 	fig.suptitle(suptitle, fontsize=14)
-
-	m = metrics['Correlation']['C_true']
-	min_corr = min(np.min(m['C_graph'][2][1]), np.min(m['C_embed'][2][1]))
 
 	for ax, m_id in zip(axes[0], METRICS_ID[2:]):
 		corr, auc_corr, partial_corrs = metrics['Correlation']['C_true'][m_id]
@@ -254,8 +311,8 @@ def plot_bias_heatmap(rho, pi, model, transformation, metrics, log = True, n = n
 			bias_grid = metrics['Bias'][m_id][bias]
 			N = bias_grid.shape[0]
 			
-			values = np.concatenate((metrics['Bias']['C_graph'][bias].ravel(), 
-							metrics['Bias']['C_embed'][bias].ravel()))
+			values = np.concatenate((metrics['Bias']['C_graph'][bias], 
+							metrics['Bias']['C_embed'][bias]))
 			vmin, vmax = np.percentile(values, 5), np.percentile(values, 95)
 			bound = max(abs(vmin), abs(vmax))
 			if bias == 'log':
@@ -286,16 +343,15 @@ def plot_bias_heatmap(rho, pi, model, transformation, metrics, log = True, n = n
 
 
 	plt.tight_layout()
-	plt.show()
+	save_file('Plots/Bias_heatmap', f'{model.name}_{rho}_{pi}_{transformation.id}', dpi=300)
 
 def plot_best_transform_heatmaps(rho, pi, model, metrics, n=n):
 	rows = ['C_graph-Best Transform', 'C_embed-Best Transform']
 	cols = ['Arg', 'Rand', 'Regret']
 
 	fig, axes = plt.subplots(2, 3, figsize=(16, 10), gridspec_kw={'width_ratios': [0.8, 1, 1]})
-	fig.set_dpi(300)
 	fig.suptitle(
-		f"Best‑Transform Metrics on Model: {model.__name__}\n" + model_str(n, rho, pi),
+		f"Best‑Transform Metrics on Model: {model.name}\n" + model_str(n, rho, pi),
 		fontsize=14
 	)
 
@@ -320,8 +376,8 @@ def plot_best_transform_heatmaps(rho, pi, model, metrics, n=n):
 				norm = colors.Normalize(vmin=0, vmax=1, clip=True)
 				sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Reds')
 
-				mean_rand_transforms_map = {t: np.mean(metrics[t]['Rand'].ravel()) for t in TRANSFORMS}
-				mean_rand_transforms_map['Argmax'] = np.mean(grid.ravel())
+				mean_rand_transforms_map = {t: np.mean(metrics[t]['Rand']) for t in TRANSFORMS}
+				mean_rand_transforms_map['Argmax'] = np.mean(grid)
 				case = lambda t : t.id if t != 'Argmax' else 'Best'
 				sorted_TRANSFORMS = sorted(TRANSFORMS + ['Argmax'], key=lambda t: mean_rand_transforms_map[t], reverse=True)
 				handles = [Patch(facecolor=TRANSFORMS_CMAP[t], label=f'{case(t)}: {mean_rand_transforms_map[t]:.2f}') 
@@ -331,9 +387,16 @@ def plot_best_transform_heatmaps(rho, pi, model, metrics, n=n):
 			else:
 				norm = colors.Normalize(vmin=0, vmax=1, clip=True)
 				sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Purples')
-				title = (f'Avg(Regret) = {np.mean(grid.ravel()):.2f}\n'
-						 f'Area(Regret > 0) = {np.count_nonzero(grid > 0) / N ** 2:.2f}')
-				ax.legend(title = title, loc="upper left")
+				avg_regret = f'Avg(Reg) = {np.mean(grid):.2f}'
+				area_positive_r = f'Area(Reg>0) = {np.count_nonzero(grid > 0) / N ** 2:.2f}'
+				avg_positive_r = f'Avg(Reg[Reg>0]) = {np.mean(grid[grid > 0]):.2f}'
+
+				handle_avg = mpatches.Patch(facecolor='none', edgecolor='none', label=avg_regret)
+				handle_area = mpatches.Patch(facecolor='none', edgecolor='none', label=area_positive_r)
+				handle_avg_positive_r = mpatches.Patch(facecolor='none', edgecolor='none', label=avg_positive_r)
+
+				ax.legend(handles=[handle_avg, handle_area, handle_avg_positive_r], loc="upper left",
+			  			   handlelength=0, handleheight=0)
 
 			title = f'{METRICS_ID_COSMETIC_MAP[row[:7]]}-Best Transform{": " + col if col != "Arg" else ""}'
 			ax.set_title(title)
@@ -355,4 +418,46 @@ def plot_best_transform_heatmaps(rho, pi, model, metrics, n=n):
 				spine.set_linewidth(1)
 
 	plt.tight_layout()
-	plt.show()
+	save_file('Plots/Best_Transform', f'Grid_{model.name}_{rho}_{pi}', dpi=300)
+
+def plot_best_transform_lines(rho, pi, model, metrics, param, n=n):
+		rows = ['C_graph-Best Transform', 'C_embed-Best Transform']
+		
+		fig, axes = plt.subplots(2, 1, figsize=(10, 12))
+		fig.suptitle(f"Rands of Transforms on Model: {model.name}\n" + model_str(n, rho, pi), fontsize=14)
+		
+		for ax, row in zip(axes, rows):
+			y_best = metrics[row]['Rand']
+			N = len(y_best)
+			x = np.linspace(0.01, 1, N)
+			
+			max_rand = np.max(np.array([metrics[t]['Rand'] for t in TRANSFORMS]), axis=0)
+			
+			for t in TRANSFORMS:
+				y = metrics[t]['Rand']
+				ax.plot(x, y,
+						label=f"{t.name}:\n Avg(Rand) = {np.mean(y):.2f}, Ahead Ratio = {np.mean(y == max_rand):.2f}",
+						color=TRANSFORMS_CMAP[t],
+						linewidth=2)
+			
+			regret_area = np.trapz(max_rand - y_best, x)
+			
+			ax.plot(x, y_best,
+					label=(f"Best Transform:\n"
+						   f"Avg(Rand) = {np.mean(y_best):.2f}, Ahead Ratio = {np.mean(y_best == max_rand):.2f}\n"
+						   f"Area(Regret) = {regret_area:.2f}"),
+					color='black',
+					linewidth=6,
+					alpha = 0.3)
+			
+			ax.fill_between(x, y_best, max_rand, color='purple', alpha=0.3)
+			
+			title = f"Best Transform according to {METRICS_ID_COSMETIC_MAP[row[:7]]}"
+			ax.set_title(title, fontsize=12)
+			ax.set_xlabel(f'{model.param_name}{sub(" " + param)}', fontsize=12)
+			ax.set_ylabel("Rand index", fontsize=12)
+			ax.set_xticks(np.linspace(0, 1, 5))
+			ax.legend(loc="upper left", handlelength=2, handleheight=2, fontsize=9)
+		
+		plt.tight_layout()
+		save_file('Plots/Best_Transform', f'Line_{model.name}_{rho}_{pi}', dpi=300)
