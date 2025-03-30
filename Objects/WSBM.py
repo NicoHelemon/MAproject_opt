@@ -225,8 +225,8 @@ ALPHAS = [(0.1, 1.0), (0.5, 0.5)]
 SIGMAS = [(1, 0.5), (0.1, 0.5)]
 MODELS = [betaWSBM, lognormWSBM]
 MODELS_AND_PARAMS = list(product([betaWSBM], ALPHAS)) + list(product([lognormWSBM], SIGMAS))
-#TRANSFORMS = [IdentityTransform(), OppositeTransform(), LogTransform(), ThresholdTransform(), RankTransform()]
 TRANSFORMS = [IdentityTransform(), OppositeTransform(), LogTransform(), ThresholdTransform()]
+TRANSFORMS_EXT = TRANSFORMS + [RankTransform()]
 RHOS_PIS_MODELS = list(product(RHOS, PIS, MODELS))
 
 TRANSFORMS_ID = [t.id for t in TRANSFORMS]
@@ -240,8 +240,7 @@ BIASES = ['abs', 'rel', 'log']
 BIASES_NAME = ['Absolute bias', 'Relative bias', 'Log-ratio bias']
 BIASES_MAP = dict(zip(BIASES, BIASES_NAME))
 
-#TRANSFORMS_CMAP = dict(zip(TRANSFORMS + ['Argmax'], ['blue', 'orange', 'green', 'red', 'purple', 'black']))
-TRANSFORMS_CMAP = dict(zip(TRANSFORMS + ['Argmax'], ['blue', 'orange', 'green', 'red', 'black']))
+TRANSFORMS_CMAP = dict(zip(TRANSFORMS_EXT + ['Argmax'], ['blue', 'orange', 'green', 'red', 'purple', 'black']))
 RHOS_PIS_MODELS_CMAP = dict(zip(RHOS_PIS_MODELS, sns.color_palette("tab10", len(RHOS_PIS_MODELS))))
 
 		

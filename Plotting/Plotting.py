@@ -15,32 +15,29 @@ from pathlib import Path
 from Objects.WSBM import *
 from .StringHelper import *
 
-PIS = PIS[:1]
-RHOS_PIS_MODELS = list(product(RHOS, PIS, MODELS))
 n = 1000
 K = 2
 
-def save_file(out_path, file_name, dpi = 200, eps = False, clf = True):
+def save_file(out_path, file_name, dpi = 200, eps = False, close = True):
 	Path(out_path).mkdir(parents = True, exist_ok = True)
 
 	file_name = file_name.replace('.', '')
 	plt.savefig(f'{out_path}/{file_name}.png', dpi=dpi)
 	if eps: plt.savefig(out_path + f'/{file_name}.eps'.replace(' ', '_'), dpi=dpi)
-	if clf: plt.clf()
+	if close: plt.close()
 
 def plot_embedding(rho, pi, metrics, n = n):
 	def label_permutation(Z_true, Z_pred):
 		matches_no_swap = np.sum(Z_true == Z_pred)
 		matches_swap = np.sum(Z_true == (1 - Z_pred))
-		if matches_swap > matches_no_swap:
-			return 1 - Z_pred
-		else:
-			return Z_pred
+		if matches_swap > matches_no_swap: return 1 - Z_pred
+		else: return Z_pred
 	
-	def switch(mode='Truth'):
+	def switch(mode):
 		n_rows, n_cols = len(metrics), len(list(metrics.values())[0].values())
 		fig, axes = plt.subplots(n_rows, n_cols, figsize=(2 + 2.5*n_cols, 2 + 3*n_rows))
-		global_title = model_str(n, rho, pi)
+		mode_str = "True community labels" if mode == 'Truth' else "Predicted community labels"
+		global_title = mode_str + '\n' + model_str(n, rho, pi)
 		fig.suptitle(global_title, fontsize=20)
 		for i, (model, model_metrics) in enumerate(metrics.items()):
 			axes[i, 0].set_ylabel(model.name + "\n")
@@ -52,7 +49,7 @@ def plot_embedding(rho, pi, metrics, n = n):
 				if mode == 'Truth':
 					ax.scatter(X[:, 0], X[:, 1], c=Z, cmap='bwr', marker='.', alpha=0.2)
 				else:
-					ax.scatter(X[:, 0], X[:, 1], c=Z_hat, cmap='bwr', marker='.', alpha=0.2)
+					ax.scatter(X[:, 0], X[:, 1], c=Z_hat, cmap='PuOr', marker='.', alpha=0.2)
 				ax.set_xticks([])
 				ax.set_yticks([])
 				for mean, cov in zip(M, Σ):
@@ -73,11 +70,13 @@ def plot_embedding(rho, pi, metrics, n = n):
 				)
 				ax.set_title(title)
 		plt.tight_layout()
-		plt.show()
+		save_file('Plots/Embeddings', f'Embedding_{rho}_{pi}_{mode}', dpi=300)
 
-	widgets.interact(switch, mode=['Truth', 'Prediction'])
+	switch('Truth')
+	switch('Prediction')
 
-def plot_scatter_Rand_vs_Chernoff(metrics, n_points_ratio_displayed=1.0, C_transform = 'Sigmoid-Ln', n=n, K=K):
+def plot_scatter_Rand_vs_Chernoff(metrics, n_points_ratio_displayed=1.0,
+								  C_transform = 'Sigmoid-Ln', n=n, K=K):
 
 	if C_transform == 'Sigmoid-Ln':
 		λ, b = 1, -7
@@ -129,6 +128,7 @@ def plot_scatter_Rand_vs_Chernoff(metrics, n_points_ratio_displayed=1.0, C_trans
 	
 	for i, (ax, m_id) in enumerate(zip(axes[0], METRICS_ID[1:])):
 		cmap = cm.magma
+		RHOS_PIS_MODELS = list(product(RHOS, PIS, MODELS))
 		nc = len(RHOS_PIS_MODELS)
 		for j, (rho, pi, model) in enumerate(RHOS_PIS_MODELS):
 			x, y, s_corr = get_xysc((rho, pi, model), m_id)
@@ -264,7 +264,9 @@ def plot_metrics_heatmap(rho, pi, model, transformation, metrics, shared = False
 			spine.set_linewidth(1)
 	
 	plt.tight_layout()
-	save_file('Plots/Metrics_heatmap', f'{model.name}_{rho}_{pi}_{transformation.id}', dpi=300)
+	m_str = f'{model.name}_{rho}_{pi}'.replace('.', '')
+	save_file(f'Plots/Metrics_Heatmap/By_Model/{m_str}', f'{transformation.id}', dpi=300, close=False)
+	save_file(f'Plots/Metrics_Heatmap/By_Transform/{transformation.id}', m_str, dpi=300)
 
 def plot_bias_heatmap(rho, pi, model, transformation, metrics, log = True, n = n):
 	fig, axes = plt.subplots(4, 2, figsize=(12, 20))
@@ -341,9 +343,10 @@ def plot_bias_heatmap(rho, pi, model, transformation, metrics, log = True, n = n
 				spine.set_visible(True)
 				spine.set_linewidth(1)
 
-
 	plt.tight_layout()
-	save_file('Plots/Bias_heatmap', f'{model.name}_{rho}_{pi}_{transformation.id}', dpi=300)
+	m_str = f'{model.name}_{rho}_{pi}'.replace('.', '')
+	save_file(f'Plots/Bias_Heatmap/By_Model/{m_str}', f'{transformation.id}', dpi=300, close=False)
+	save_file(f'Plots/Bias_Heatmap/By_Transform/{transformation.id}', m_str, dpi=300)
 
 def plot_best_transform_heatmaps(rho, pi, model, metrics, n=n):
 	rows = ['C_graph-Best Transform', 'C_embed-Best Transform']
@@ -362,7 +365,7 @@ def plot_best_transform_heatmaps(rho, pi, model, metrics, n=n):
 			N = grid.shape[0]
 
 			if col == 'Arg':
-				cmap = ListedColormap(list(TRANSFORMS_CMAP.values())[:-1])
+				cmap = ListedColormap(list(TRANSFORMS_CMAP.values())[:-2])
 				norm = BoundaryNorm(np.arange(-0.5, cmap.N + 0.5, 1), cmap.N)
 				ax.pcolormesh(grid, cmap = cmap, norm = norm, shading='auto')
 				area_map = dict(zip(TRANSFORMS, metrics[row]['Transform Area']))

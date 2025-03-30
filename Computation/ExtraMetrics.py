@@ -5,9 +5,6 @@ from sklearn.metrics import auc
 
 from Objects.WSBM import *
 
-PIS = PIS[:1]
-RHOS_PIS_MODELS = list(product(RHOS, PIS, MODELS))
-
 def best_transform_metrics(m):
 	def stack_grids(m, metric):
 		return np.stack([m[t][metric] for t in TRANSFORMS], axis=-1)
