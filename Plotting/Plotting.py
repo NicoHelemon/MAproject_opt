@@ -208,7 +208,7 @@ def plot_metrics_heatmap(rho, pi, model, transformation, metrics, shared = False
 		metric_grid = metrics[m_id]
 		N = metric_grid.shape[0]
 		if m_id == 'Rand':
-			sns.heatmap(metric_grid, cmap='Reds', ax=ax, cbar=True)
+			sns.heatmap(metric_grid, cmap='Reds', ax=ax, vmin = -0.05, vmax = 1, cbar=True)
 		else:
 			if log:
 				norm = colors.LogNorm(vmin=vmin, vmax=vmax, clip=True)
@@ -432,7 +432,7 @@ def plot_best_transform_lines(rho, pi, model, metrics, param, n=n):
 			mBestC = metrics[f'{C}-Best Transform']
 			y_best = mBestC['Rand']
 			N = len(y_best)
-			x = np.linspace(0.01, 1, N)
+			x = linspace_exclusive(0, 1, N)
 			
 			
 			for t in TRANSFORMS:
@@ -454,10 +454,11 @@ def plot_best_transform_lines(rho, pi, model, metrics, param, n=n):
 			
 			title = f"Best Transform according to {METRICS_ID_COSMETIC_MAP[C]}"
 			ax.set_title(title, fontsize=12)
+			ax.set_ylim(-0.1, 1.05)
 			ax.set_xlabel(f'{model.param_name}{sub(" " + param)}', fontsize=12)
 			ax.set_ylabel("Rand index", fontsize=12)
 			ax.set_xticks(np.linspace(0, 1, 5))
-			ax.legend(loc="upper left", handlelength=2, handleheight=2, fontsize=9)
+			ax.legend(handlelength=2, handleheight=2, fontsize=9)
 		
 		plt.tight_layout()
 		save_file('Plots/Best_Transform', f'Line_{model.name}_{rho}_{pi}', dpi=300)

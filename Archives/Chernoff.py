@@ -5,7 +5,7 @@ from itertools import permutations
 def chernoff_information_graph(B, C, Π):	
 	K = B.shape[0]
 	e = np.eye(K)
-	C += np.finfo(float).eps * np.eye(K)
+	#C += np.finfo(float).eps * np.eye(K)
 
 	def objective(t, k, l):
 		S_kl_t = (1 - t) * np.diag(C[k]) + t * np.diag(C[l])

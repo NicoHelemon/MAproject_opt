@@ -10,8 +10,8 @@ from Plotting.StringHelper import sub, sup
 # Constants I:
 
 n = 1000
-ExpMu = np.array([[1, 1 - 1e-6], 
-				  [1 - 1e-6, 1]])
+ExpMu = np.array([[1, 1], 
+				  [1, 1]])
 
 ###########################
 
@@ -53,6 +53,11 @@ def edges_block_proportions(K, Π, N):
 
 	return n_edges / (n * (n - 1) / 2)
 
+
+def linspace_exclusive(start, stop, N):
+	return np.linspace(start, stop, N + 2)[1:-1]
+
+###########################
 
 class WSBM(ABC):
 	@abstractmethod

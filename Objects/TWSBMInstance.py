@@ -71,7 +71,7 @@ class TWSBMInstance:
 
 		return B, C, Π
 
-	def __spectral_embedding(self, A, d=2, mode = 'sqrt-sclaled'):
+	def __spectral_embedding(self, A, d=2, mode = 'sqrt-scaled'):
 		vals, vecs = eigsh(A, k=d, which='LM')
 		if mode == 'sqrt-scaled':
 			return vecs * np.sqrt(np.abs(vals))
