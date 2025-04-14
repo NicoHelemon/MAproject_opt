@@ -2,8 +2,24 @@ import numpy as np
 import warnings
 from scipy.stats import spearmanr, ConstantInputWarning
 from sklearn.metrics import auc
+from scipy.ndimage import convolve
 
 from Objects.WSBM import *
+
+def kernel(window = 3, dim = 2, exterior_total_weight = None):
+	if exterior_total_weight is None: 
+		exterior_total_weight = dim * 0.5
+	K = np.ones([window] * dim)
+	K = K * exterior_total_weight / (np.sum(K) - 1)
+	K[tuple([slice(1, -1)] * dim)] = 1
+	return K
+	
+def local_weighted_average(tensor, K = None):
+	if K is None: K = kernel(dim = tensor.ndim - 1)
+	assert tensor.ndim == K.ndim + 1, "Tensor and kernel must matching number of dimensions"
+	M = convolve(tensor.astype(float).sum(axis=-1), K, mode='constant', cval=0.0)
+	M = M / convolve(np.ones(tensor.shape[:-1]), K, mode='constant', cval=0.0)
+	return M / tensor.shape[-1]
 
 def best_transform_metrics(m):
 	def stack_grids(m, metric):
@@ -15,10 +31,11 @@ def best_transform_metrics(m):
 	for t in TRANSFORMS:
 		m[t]['Ahead Ratio'] = np.mean(m[t]['Rand'] == m['Rand Max'])
 
-	for C in ['C_graph', 'C_embed']:
+	for C in ['C_true', 'C_graph', 'C_embed']:
 		m[f'{C}-Best Transform'] = {}
 		mBestC = m[f'{C}-Best Transform']
 		mBestC['Arg'] = np.argmax(stack_grids(m, C), axis=-1).astype(int)
+		mBestC['Arg'] = np.clip(mBestC['Arg'], 1, None)
 		mBestC['Transform Area'] = np.bincount(mBestC['Arg'].ravel(), minlength=len(TRANSFORMS)) / np.prod(mBestC['Arg'].shape)
 		mBestC['Rand'] = np.take_along_axis(Rand, mBestC['Arg'][..., None], axis=-1).squeeze(-1)
 		mBestC['Rand Avg'] = np.mean(mBestC['Rand'])
@@ -45,7 +62,6 @@ def best_transform_metrics(m):
 			mBestC[t]['Rand Avg on Positive Regret'] = np.mean(mBestC['Rand'][idx_t & (regret > 0)])
 			mBestC[t]['Rand Avg on Null Regret'] = np.mean(mBestC['Rand'][idx_t & (regret == 0)])
 
-
 	return m
 
 def bias(m, eps = np.finfo(float).eps):
@@ -64,8 +80,7 @@ def bias(m, eps = np.finfo(float).eps):
 
 	return m
 
-def correlation(m):
-	def partial_correlation(true, pred, num_ticks = 100):
+def partial_correlation(true, pred, num_ticks = 100):
 		true_flat = true.ravel()
 		pred_flat = pred.ravel()
 
@@ -83,9 +98,11 @@ def correlation(m):
 		corrs = np.nan_to_num(corrs, nan=0)
 		ticks = ticks / N
 		partial_corrs = ((ticks * 100).astype(int), corrs)
+		# Btw auc (btwn 0 and 1, which is the case) == mean 
 
 		return corrs[-1], auc(ticks, corrs), partial_corrs
 
+def correlation(m):
 	m['Correlation'] = {}
 	m['Correlation']['Rand']  = {metric: partial_correlation(m['Rand'], m[metric]) for metric in ['C_true', 'C_graph', 'C_embed']}
 	m['Correlation']['C_true'] = {metric: partial_correlation(m['C_true'], m[metric]) for metric in ['C_graph', 'C_embed']}

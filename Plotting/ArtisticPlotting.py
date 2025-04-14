@@ -7,9 +7,9 @@ K = 2
 gaussian_sigma = 0.8
 blur_itersions = 1
 
-kernel_size = 3
-kernel = np.ones((kernel_size, kernel_size), dtype=float)
-kernel /= kernel.sum()
+#kernel_size = 3
+#kernel = np.ones((kernel_size, kernel_size), dtype=float)
+#kernel /= kernel.sum()
 
 def art_plot_scatter_Rand_vs_Chernoff(metrics, n_points_ratio_displayed=1.0,
                                   C_transform='Sigmoid-Ln', n=n, K=K):

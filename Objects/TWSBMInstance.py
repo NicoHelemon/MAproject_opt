@@ -11,7 +11,8 @@ from sklearn.metrics import adjusted_rand_score
 from itertools import permutations, product
 
 class TWSBMInstance:
-	def __init__(self, model = None, transformation = None, A = None, Z = None, seed = None):
+	def __init__(self, model = None, transformation = None, 
+			  A = None, Z = None, seed = None, emb_mode = 'sqrt-scaled'):
 		self.model = None
 		self.model_name = None
 		self.transformation = None
@@ -37,7 +38,7 @@ class TWSBMInstance:
 		self.model_name = model.name
 		self.transform_name = transformation.name
 
-		self.X = self.__spectral_embedding(self.A)
+		self.X = self.__spectral_embedding(self.A, mode = emb_mode)
 		self.Z_hat, self.M, self.Σ = self.__fit_GMM(self.X)
 
 		if self.model is not None:
@@ -71,14 +72,16 @@ class TWSBMInstance:
 
 		return B, C, Π
 
-	def __spectral_embedding(self, A, d=2, mode = 'sqrt-scaled'):
+	def __spectral_embedding(self, A, mode, d=2):
 		vals, vecs = eigsh(A, k=d, which='LM')
 		if mode == 'sqrt-scaled':
 			return vecs * np.sqrt(np.abs(vals))
 		elif mode == 'scaled':
 			return vecs * np.abs(vals)
-		else:
+		elif mode == 'raw':
 			return vecs
+		else:
+			raise ValueError(f"Unknown embedding mode: {mode}")
 
 	def __fit_GMM(self, X):
 		gmm = GaussianMixture(n_components=2, covariance_type='full', random_state=42).fit(X)
@@ -87,7 +90,8 @@ class TWSBMInstance:
 	def __chernoff_information_graph(self, B, C, Π):	
 		K = B.shape[0]
 		e = np.eye(K)
-		C += np.finfo(float).eps * np.eye(K)
+		if np.prod(np.diag(C)) == 0:
+			return 0
 
 		def objective(t, k, l):
 			S_kl_t = (1 - t) * np.diag(C[k]) + t * np.diag(C[l])
@@ -102,7 +106,7 @@ class TWSBMInstance:
 		for k, l in permutations(range(K), 2):
 			res = minimize_scalar(neg_objective, bounds=(0, 1), method='bounded', args=(k, l))
 			c = min(c, -res.fun)
-		
+
 		return c
 
 	def __chernoff_information_embedding(self, X, Σ, n):

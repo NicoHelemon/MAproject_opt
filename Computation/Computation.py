@@ -8,7 +8,8 @@ from Objects.TWSBMInstance import *
 def r_dot(x):
 	return str(x).replace('.', '')
 
-def simulate_in_grid(N, rep, model, model_params, transformations):
+def simulate_in_grid(N, rep, model, model_params, transformations, 
+					 p22 = 'fixed', emb_mode = 'sqrt-scaled'):
 	rho, pi = model_params
 
 	p11_linspace = linspace_exclusive(0, 1, N)
@@ -23,12 +24,12 @@ def simulate_in_grid(N, rep, model, model_params, transformations):
 
 	for i, p11 in enumerate(p11_linspace):
 		for j, p12 in enumerate(p12_linspace):
-			m = model(rho, pi, (p11, p12))
+			m = model(rho, pi, (p11, p12), p22 = p22)
 			for k in range(rep):
 				seed = k * N ** 2 + i * N + j
 				A, Z = m(seed = seed)
 				for t in transformations:
-					G = TWSBMInstance(model = m, transformation = t, A = t(A), Z = Z)
+					G = TWSBMInstance(model = m, transformation = t, A = t(A), Z = Z, emb_mode = emb_mode)
 					metrics[f'{t.id}_C_true'][i, j, k]  = G.C_true
 					metrics[f'{t.id}_C_graph'][i, j, k] = G.C_graph
 					metrics[f'{t.id}_C_embed'][i, j, k] = G.C_embedding
@@ -45,11 +46,12 @@ def simulate_in_grid(N, rep, model, model_params, transformations):
 					print(f"Progress: {steps_done}/{total_steps} "
 						f"({fraction_done*100:.1f}%). "
 						f"Elapsed: {elapsed_str}. ETA: {eta_str}.")
-				
-	os.makedirs("Computation/Grids", exist_ok = True)
+
+	os.makedirs(f"Computation/{emb_mode_p22_path_str(emb_mode, p22)}/Grids", exist_ok = True)
 	np.savez_compressed(f"Computation/Grids/{model.__name__}_{r_dot(rho)}_{r_dot(pi)}.npz", **metrics)
 
-def simulate_in_line(N, rep, model, model_params, transformations, p11 = None, p12 = None):
+def simulate_in_line(N, rep, model, model_params, transformations, p11 = None, p12 = None,
+					 p22 = 'fixed', emb_mode = 'sqrt-scaled'):
 	rho, pi = model_params
 
 	assert p11 is None or p12 is None
@@ -76,12 +78,12 @@ def simulate_in_line(N, rep, model, model_params, transformations, p11 = None, p
 	start_time = time.time()
 
 	for i, (p11, p12) in enumerate(p_linspace):
-		m = model(rho, pi, (p11, p12))
+		m = model(rho, pi, (p11, p12), p22 = p22)
 		for j in range(rep):	
 			seed = j * N + i
 			A, Z = m(seed = seed)
 			for t in transformations:
-				G = TWSBMInstance(model = m, transformation = t, A = t(A), Z = Z)
+				G = TWSBMInstance(model = m, transformation = t, A = t(A), Z = Z, emb_mode = emb_mode)
 				metrics[f'{t.id}_C_true'][i, j]  = G.C_true
 				metrics[f'{t.id}_C_graph'][i, j] = G.C_graph
 				metrics[f'{t.id}_C_embed'][i, j] = G.C_embedding
@@ -101,7 +103,8 @@ def simulate_in_line(N, rep, model, model_params, transformations, p11 = None, p
 			
 	metrics['fixed_param'] = fixed_param
 				
-	os.makedirs("Computation/Lines", exist_ok = True)
+	path = f"Computation/{emb_mode_p22_path_str(emb_mode, p22)}/Lines"
+	os.makedirs(path, exist_ok = True)
 	param_str, param_val = fixed_param
-	file = f"Computation/Lines/{model.__name__}_{rho}_{pi}_{param_str}_{param_val}".replace('.', '')
-	np.savez_compressed(f"{file}.npz", **metrics)
+	file = f"{model.__name__}_{rho}_{pi}_{param_str}_{param_val}".replace('.', '')
+	np.savez_compressed(f"{path}/{file}.npz", **metrics)

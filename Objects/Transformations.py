@@ -17,7 +17,8 @@ class IdentityTransform(WeightTransform):
 		self.id = 'Id'
 
 	def __call__(self, A):
-		return A
+		tA = A.copy()
+		return tA
 
 # Opposite transformation (1 - A)
 class OppositeTransform(WeightTransform):
@@ -26,9 +27,9 @@ class OppositeTransform(WeightTransform):
 		self.id = 'Opp'
 
 	def __call__(self, A):
-		A = 1 - A
-		np.fill_diagonal(A, 0)
-		return A
+		tA = A.copy()
+		tA[tA > 0] = 1 - tA[tA > 0]
+		return tA
 
 # Logarithmic transformation (-log(A))
 class LogTransform(WeightTransform):
@@ -37,10 +38,9 @@ class LogTransform(WeightTransform):
 		self.id = 'Log'
 
 	def __call__(self, A):
-		A = np.clip(A, np.finfo(A.dtype).eps, None)
-		A = -np.log(A)
-		np.fill_diagonal(A, 0)
-		return A
+		tA = A.copy()
+		tA[tA > 0] = -np.log(tA[tA > 0])
+		return tA
 
 # Threshold transformation (binary thresholding)
 class ThresholdTransform(WeightTransform):
@@ -50,24 +50,6 @@ class ThresholdTransform(WeightTransform):
 		self.τ = τ
 
 	def __call__(self, A):
-		A = (A <= self.τ).astype(float)
-		np.fill_diagonal(A, 0)
-		return A
-
-# Rank transformation (normalized ranking of upper-triangular values)
-class RankTransform(WeightTransform):
-	def __init__(self):
-		self.name = "Rank"
-		self.id = 'Rank'
-
-	def __call__(self, A):
-
-		iu = np.triu_indices_from(A, k=1)
-		ranks = rankdata(A[iu], method='ordinal')
-
-		R = np.zeros_like(A, dtype=float)
-		R[iu] = ranks / (ranks.size + 1)
-		R = R + R.T
-		np.fill_diagonal(R, 0)
-		
-		return R
+		tA = A.copy()
+		tA[tA > 0] = (tA[tA > 0] <= self.τ).astype(float)
+		return tA
