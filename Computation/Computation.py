@@ -5,10 +5,7 @@ import os
 
 from Objects.TWSBMInstance import *
 
-def r_dot(x):
-	return str(x).replace('.', '')
-
-def simulate_in_grid(N, rep, model, model_params, transformations, 
+def simulate_in_grid(N, Batch, rep, model, model_params, transformations, 
 					 p22 = 'fixed', emb_mode = 'sqrt-scaled'):
 	rho, pi = model_params
 
@@ -26,7 +23,7 @@ def simulate_in_grid(N, rep, model, model_params, transformations,
 		for j, p12 in enumerate(p12_linspace):
 			m = model(rho, pi, (p11, p12), p22 = p22)
 			for k in range(rep):
-				seed = k * N ** 2 + i * N + j
+				seed = Batch * total_steps + steps_done
 				A, Z = m(seed = seed)
 				for t in transformations:
 					G = TWSBMInstance(model = m, transformation = t, A = t(A), Z = Z, emb_mode = emb_mode)
@@ -48,7 +45,8 @@ def simulate_in_grid(N, rep, model, model_params, transformations,
 						f"Elapsed: {elapsed_str}. ETA: {eta_str}.")
 
 	os.makedirs(f"Computation/{emb_mode_p22_path_str(emb_mode, p22)}/Grids", exist_ok = True)
-	np.savez_compressed(f"Computation/Grids/{model.__name__}_{r_dot(rho)}_{r_dot(pi)}.npz", **metrics)
+	file = f"{model.__name__}_{rho}_{pi}_{Batch}".replace('.', '')
+	np.savez_compressed(f"Computation/Grids/{file}.npz", **metrics)
 
 def simulate_in_line(N, rep, model, model_params, transformations, p11 = None, p12 = None,
 					 p22 = 'fixed', emb_mode = 'sqrt-scaled'):

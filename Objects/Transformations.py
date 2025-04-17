@@ -27,7 +27,7 @@ class OppositeTransform(WeightTransform):
 		self.id = 'Opp'
 
 	def __call__(self, A):
-		tA = A.copy()
+		tA = np.clip(A, 0, 1)
 		tA[tA > 0] = 1 - tA[tA > 0]
 		return tA
 
@@ -38,13 +38,13 @@ class LogTransform(WeightTransform):
 		self.id = 'Log'
 
 	def __call__(self, A):
-		tA = A.copy()
+		tA = np.clip(A, 0, 1)
 		tA[tA > 0] = -np.log(tA[tA > 0])
 		return tA
 
 # Threshold transformation (binary thresholding)
 class ThresholdTransform(WeightTransform):
-	def __init__(self, τ = 0.1):
+	def __init__(self, τ = 0.05):
 		self.name = f"Threshold (τ = {τ})"
 		self.id = 'Thr'
 		self.τ = τ
@@ -52,4 +52,33 @@ class ThresholdTransform(WeightTransform):
 	def __call__(self, A):
 		tA = A.copy()
 		tA[tA > 0] = (tA[tA > 0] <= self.τ).astype(float)
+		return tA
+	
+class RankTransform(WeightTransform):
+	def __init__(self):
+		self.name = "Rank"
+		self.id = 'Rank'
+
+	def __call__(self, A):
+		iu = np.triu_indices_from(A, k=1)
+		p_iu = A[iu] > 0
+		ranks = rankdata(A[iu][p_iu], method='ordinal')
+
+		tA = np.zeros_like(A, dtype=float)
+		tA[iu[0][p_iu], iu[1][p_iu]] = ranks / (ranks.size + 1)
+		tA = tA + tA.T
+		np.fill_diagonal(tA, 0)
+		
+		return tA
+	
+class QuantileTransform(WeightTransform):
+	def __init__(self, q = 0.1):
+		self.name = f"Quantile (q = {q})"
+		self.id = 'Qtl'
+		self.q = q
+
+	def __call__(self, A):
+		tA = A.copy()
+		τ = np.quantile(tA[tA > 0], self.q)
+		tA[tA > 0] = (tA[tA > 0] <= τ).astype(float)
 		return tA

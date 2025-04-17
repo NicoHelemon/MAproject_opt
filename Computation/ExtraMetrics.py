@@ -35,7 +35,7 @@ def best_transform_metrics(m):
 		m[f'{C}-Best Transform'] = {}
 		mBestC = m[f'{C}-Best Transform']
 		mBestC['Arg'] = np.argmax(stack_grids(m, C), axis=-1).astype(int)
-		mBestC['Arg'] = np.clip(mBestC['Arg'], 1, None)
+		#mBestC['Arg'] = np.clip(mBestC['Arg'], 1, None)
 		mBestC['Transform Area'] = np.bincount(mBestC['Arg'].ravel(), minlength=len(TRANSFORMS)) / np.prod(mBestC['Arg'].shape)
 		mBestC['Rand'] = np.take_along_axis(Rand, mBestC['Arg'][..., None], axis=-1).squeeze(-1)
 		mBestC['Rand Avg'] = np.mean(mBestC['Rand'])

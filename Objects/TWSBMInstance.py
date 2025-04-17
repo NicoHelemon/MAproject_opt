@@ -52,6 +52,18 @@ class TWSBMInstance:
 
 		self.RAND = adjusted_rand_score(self.Z, self.Z_hat)
 
+		"""
+		print(f"ρ = {self.model.ρ}, Π = {self.model.Π.ravel()} {self.model_name}, T = {self.transform_name}")
+
+		def MSE(U, U_hat):
+			U_hat_anti_T = np.rot90(U_hat, 2).T
+			return 1 / 3 * min(np.sum(np.triu((U - U_hat)**2)), np.sum(np.triu((U - U_hat_anti_T)**2)))
+
+		B_hat_Z_true, C_hat_Z_true, _ = self.__empirical_B_C(self.A, self.Z)
+
+		print(f"MSE B = {MSE(B, B_hat_Z_true):.6f}")
+		print(f"MSE C = {MSE(C, C_hat_Z_true):.6f}")"""
+
 	def __empirical_B_C(self, A, Z):
 		K = len(np.unique(Z))
 		B, C, Π = np.zeros((K, K)), np.zeros((K, K)), np.zeros((K, K))

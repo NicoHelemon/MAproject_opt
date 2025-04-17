@@ -34,7 +34,7 @@ class Plotter:
 		if eps: plt.savefig(out_path + f'/{file_name}.eps'.replace(' ', '_'), dpi=dpi)
 		if close: plt.close()
 
-	def plot_embedding(self, rho, pi, metrics, n = n):
+	def plot_embedding(self, rho, pi, metrics, n = n, subfolder = ''):
 		def label_permutation(Z_true, Z_pred):
 			matches_no_swap = np.sum(Z_true == Z_pred)
 			matches_swap = np.sum(Z_true == (1 - Z_pred))
@@ -78,7 +78,7 @@ class Plotter:
 					)
 					ax.set_title(title)
 			plt.tight_layout()
-			self.save_file('Embeddings_Lognormal', f'{rho}_{pi}_{mode}', dpi=300)
+			self.save_file(f'Embeddings/{subfolder}', f'{rho}_{pi}', dpi=300)
 
 		switch('Truth')
 		#switch('Prediction')
@@ -446,8 +446,8 @@ class Plotter:
 		plt.tight_layout()
 		self.save_file('Best_Transform', f'Grid_{model.name}_{rho}_{pi}', dpi=300)
 
-	def plot_best_transform_lines(self, rho, pi, model, metrics, n=n):
-		def darken_color(color, factor=0.25, alpha=0.5):
+	def plot_best_transform_lines(self, rho, pi, model, metrics, p22 = f'fixed', n=n):
+		def darken_color(color, factor=0.5, alpha=0.5):
 			rgb = np.array(mpl.colors.to_rgb(color))
 			darkened = rgb * factor
 			return (darkened[0], darkened[1], darkened[2], alpha)
@@ -456,12 +456,21 @@ class Plotter:
 		best_transform_colors = dict(zip(chernoffs, ['magenta', 'cyan', 'yellow']))
 		chernoffs = chernoffs[1:]
 
-		fixed_param, param_val = metrics['fixed_param']
+		fixed_param, fixed_param_val = metrics['fixed_param']
 		varying_param = fixed_param[:-1] + str(3 - int(fixed_param[-1]))
-		param_val = str(param_val)[:3]
-		
+		fixed_param_val = str(fixed_param_val)[:3]
+		if fixed_param[-2:] == '11':
+			p11 = fixed_param_val
+			p12 = model.param_name + sub('12')
+			p22 = model.p22_fixed if p22 == 'fixed' else p11
+		else:
+			p11 = model.param_name + sub('11')
+			p12 = fixed_param_val
+			p22 = model.p22_fixed if p22 == 'fixed' else p11
+
 		fig, axes = plt.subplots(2, 1, figsize=(10, 12))
-		fig.suptitle(f"Rands of Transforms on Model: {model.name}, {sub(fixed_param)} = {param_val}\n" + model_str(n, rho, pi), fontsize=14)
+		suptitle_str = f"Best Transform Metrics on Model: {model.instance_name_str(param_init(p11, p12, p22))}\nf{model_str(n, rho, pi)}"
+		fig.suptitle(suptitle_str, fontsize=14)
 
 		N = len(metrics[TRANSFORMS[0]]['Rand'])
 		x = linspace_exclusive(0, 1, N)
@@ -470,7 +479,7 @@ class Plotter:
 		for t in TRANSFORMS:
 			y = metrics[t]['Rand']
 			ax1.plot(x, y,
-					label=f"{t.name}:\n Avg(Rand) = {np.mean(y):.2f}, Ahead Ratio = {metrics[t]['Ahead Ratio']:.2f}",
+					label=f"{t.name}:\n Avg(Rand) = {np.mean(y):.2f}, Lead Ratio = {metrics[t]['Ahead Ratio']:.2f}",
 					color=TRANSFORMS_CMAP[t],
 					linewidth=2)
 			ax2.plot(x, y,
@@ -482,11 +491,11 @@ class Plotter:
 			mBestC = metrics[f'{C}-Best Transform']
 			y_best = mBestC['Rand']
 
-			shift = 0.01 * (i-1)
+			shift = 0.01 * (i - (len(chernoffs) - 1) / 2)
 			
 			ax2.plot(x, y_best + shift,
 					label=(f"{C}-Best Transform:\n"
-							f"Avg(Rand) = {mBestC['Rand Avg']:.2f}, Ahead Ratio = {mBestC['Ahead Ratio']:.2f}\n"
+							f"Avg(Rand) = {mBestC['Rand Avg']:.2f}\nLead Ratio = {mBestC['Ahead Ratio']:.2f}\n"
 							f"Area(Regret) = {mBestC['Regret Avg']:.2f}"),
 					color=best_transform_colors[C],
 					linewidth=3,
@@ -495,12 +504,72 @@ class Plotter:
 			
 		ax1.set_title(f"Transforms RAND", fontsize=12)
 		ax2.set_title(f"Best Transforms RAND", fontsize=12)
-		ax2.set_xlabel(sub(varying_param), fontsize=12)
+		ax2.set_xlabel(sub(varying_param), fontsize=14)
 		for ax in [ax1, ax2]:
 			ax.set_ylim(-0.1, 1.05)
+			ax.set_xlim(0, 1)
 			ax.set_ylabel("Rand index", fontsize=12)
 			ax.set_xticks(np.linspace(0, 1, 5))
 			ax.legend(handlelength=2, handleheight=2, fontsize=9)
 		
 		plt.tight_layout()
-		self.save_file('Best_Transform', f'Line_{model.name}_{rho}_{pi}_{fixed_param}_{param_val}', dpi=300)
+		self.save_file('Best_Transform', f'Line_{model.name}_{rho}_{pi}_{fixed_param}_{fixed_param_val}', dpi=300)
+
+	def plot_best_transform_lines_light(self, rho, pi, model, metrics, n=n):
+		def darken_color(color, factor=0.5, alpha=0.5):
+			rgb = np.array(mpl.colors.to_rgb(color))
+			darkened = rgb * factor
+			return (darkened[0], darkened[1], darkened[2], alpha)
+
+		chernoffs = ['C_true', 'C_graph', 'C_embed']
+		best_transform_colors = dict(zip(chernoffs, ['magenta', 'cyan', 'yellow']))
+		chernoffs = chernoffs[1:]
+
+		fixed_param, fixed_param_val = metrics['fixed_param']
+		varying_param = fixed_param[:-1] + str(3 - int(fixed_param[-1]))
+		fixed_param_val = str(fixed_param_val)[:3]
+		
+		fig, axes = plt.subplots(2, 1, figsize=(10, 10))
+		fig.suptitle(f"Accuracy of Transforms\n", fontsize=16)
+
+		N = len(metrics[TRANSFORMS[0]]['Rand'])
+		x = linspace_exclusive(0, 1, N)
+
+		ax1, ax2 = axes
+		for t in TRANSFORMS:
+			y = metrics[t]['Rand']
+			y_std = metrics[t]['std']['Rand']
+			ax1.plot(x, y,
+					label=f"{t.name}:\n Avg(Acc) = {np.mean(y):.2f}, Lead Ratio = {metrics[t]['Ahead Ratio']:.2f}",
+					color=TRANSFORMS_CMAP[t],
+					linewidth=2)
+			ax1.fill_between(x, y - y_std, y + y_std, color=TRANSFORMS_CMAP[t], alpha=0.1)
+			ax2.plot(x, y,
+					label=f"",
+					color=darken_color(TRANSFORMS_CMAP[t]),
+					linewidth=1)
+		
+		for i, C in enumerate(chernoffs):
+			mBestC = metrics[f'{C}-Best Transform']
+			y_best = mBestC['Rand']
+
+			shift = 0.01 * (i - (len(chernoffs) - 1) / 2)
+			
+			ax2.plot(x, y_best + shift,
+					label=(f"Argmax {C} Transform:\n"
+							f"Avg(Acc) = {mBestC['Rand Avg']:.2f}\nLead Ratio = {mBestC['Ahead Ratio']:.2f}\n"
+							f"Area(Regret) = {mBestC['Regret Avg']:.2f}"),
+					color=best_transform_colors[C],
+					linewidth=3,
+					alpha = 0.75)
+			
+		ax2.set_xlabel("\n"+sub(varying_param), fontsize=16)
+		for ax in [ax1, ax2]:
+			ax.set_ylim(-0.1, 1.05)
+			ax.set_xlim(0, 1)
+			ax.set_ylabel("Acc", fontsize=14)
+			ax.set_xticks(np.linspace(0, 1, 5))
+			ax.legend(handlelength=2, handleheight=2, fontsize=12)
+		
+		plt.tight_layout()
+		self.save_file('Best_Transform_Light', f'Line_{model.name}_{rho}_{pi}_{fixed_param}_{fixed_param_val}', dpi=400)
