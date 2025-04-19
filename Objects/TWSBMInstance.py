@@ -6,6 +6,7 @@ from .WSBM import *
 from scipy.sparse.linalg import eigsh
 from sklearn.mixture import GaussianMixture
 from scipy.optimize import minimize_scalar
+from scipy.sparse import csr_matrix
 from sklearn.metrics import adjusted_rand_score
 
 from itertools import permutations, product
@@ -64,6 +65,7 @@ class TWSBMInstance:
 		print(f"MSE B = {MSE(B, B_hat_Z_true):.6f}")
 		print(f"MSE C = {MSE(C, C_hat_Z_true):.6f}")"""
 
+	"""
 	def __empirical_B_C(self, A, Z):
 		K = len(np.unique(Z))
 		B, C, Π = np.zeros((K, K)), np.zeros((K, K)), np.zeros((K, K))
@@ -82,10 +84,27 @@ class TWSBMInstance:
 				B[k, l] = block_values.mean()
 				C[k, l] = block_values.var(ddof = block_values.size > 1)
 
+		return B, C, Π"""
+	
+	def __empirical_B_C(self, A, Z):
+		K     = len(np.unique(Z))
+		nodes = np.bincount(Z, minlength=K)
+		edges = nodes[:, None] * nodes[None, :] - np.diag(nodes)
+		Π     = np.diag(nodes / len(Z))
+
+		H  = np.eye(K)[Z]
+		S1 = H.T @ A @ H
+		S2 = H.T @ A**2 @ H
+
+		with np.errstate(divide='ignore', invalid='ignore'):
+			B = S1 / edges
+			C = (S2 - B * S1) / (edges - 1)
+			B = np.nan_to_num(B)
+			C = np.nan_to_num(C)
 		return B, C, Π
 
 	def __spectral_embedding(self, A, mode, d=2):
-		vals, vecs = eigsh(A, k=d, which='LM')
+		vals, vecs = eigsh(A.astype(np.float32), k=d, which='LM')
 		if mode == 'sqrt-scaled':
 			return vecs * np.sqrt(np.abs(vals))
 		elif mode == 'scaled':
