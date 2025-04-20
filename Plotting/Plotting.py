@@ -389,7 +389,7 @@ class Plotter:
 				N = grid.shape[0]
 
 				if col == 'Arg':
-					cmap = ListedColormap(list(TRANSFORMS_CMAP.values())[:-2])
+					cmap = ListedColormap(list(TRANSFORMS_CMAP.values())[:-1])
 					norm = BoundaryNorm(np.arange(-0.5, cmap.N + 0.5, 1), cmap.N)
 					ax.pcolormesh(grid, cmap = cmap, norm = norm, shading='auto')
 					area_map = dict(zip(TRANSFORMS, metrics[row]['Transform Area']))

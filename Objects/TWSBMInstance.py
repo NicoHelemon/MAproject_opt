@@ -121,8 +121,7 @@ class TWSBMInstance:
 	def __chernoff_information_graph(self, B, C, Π):	
 		K = B.shape[0]
 		e = np.eye(K)
-		if np.prod(np.diag(C)) == 0:
-			return 0
+		C += np.eye(K) * np.finfo(float).tiny
 
 		def objective(t, k, l):
 			S_kl_t = (1 - t) * np.diag(C[k]) + t * np.diag(C[l])
