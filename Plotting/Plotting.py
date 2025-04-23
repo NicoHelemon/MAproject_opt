@@ -79,7 +79,7 @@ class Plotter:
 					)
 					ax.set_title(title)
 			plt.tight_layout()
-			self.save_file(f'Embeddings/{subfolder}', f'{rho}_{pi}', dpi=300)
+			self.save_file(f'Embeddings/{subfolder}', f'{rho}_{pi}', dpi=400)
 
 		switch('Truth')
 		#switch('Prediction')
@@ -214,7 +214,7 @@ class Plotter:
 			ax.set_xlabel(transform_str(m_id), fontsize=12)
 
 		plt.tight_layout()
-		self.save_file('', f'Rand_vs_Chernoff_{C_transform}', dpi=300)
+		self.save_file('', f'Rand_vs_Chernoff_{C_transform}', dpi=400)
 
 	def plot_metrics_heatmap(self, rho, pi, model, transformation, metrics, shared = False, log = False, corr_info = True, n = n):
 		if shared:
@@ -291,8 +291,8 @@ class Plotter:
 		
 		plt.tight_layout()
 		m_str = f'{model.name}_{rho}_{pi}'.replace('.', '')
-		self.save_file(f'Metrics_Heatmap/By_Model/{m_str}', f'{transformation.id}', dpi=300, close=False)
-		self.save_file(f'Metrics_Heatmap/By_Transform/{transformation.id}', m_str, dpi=300)
+		self.save_file(f'Heatmaps_by_MT/Metrics/By_Model/{m_str}', f'{transformation.id}', dpi=400, close=False)
+		self.save_file(f'Heatmaps_by_MT/Metrics/By_Transform/{transformation.id}', m_str, dpi=400)
 
 	def plot_bias_heatmap(self, rho, pi, model, transformation, metrics, log = True, n = n):
 		fig, axes = plt.subplots(4, 2, figsize=(12, 20))
@@ -371,8 +371,8 @@ class Plotter:
 
 		plt.tight_layout()
 		m_str = f'{model.name}_{rho}_{pi}'.replace('.', '')
-		self.save_file(f'Bias_Heatmap/By_Model/{m_str}', f'{transformation.id}', dpi=300, close=False)
-		self.save_file(f'Bias_Heatmap/By_Transform/{transformation.id}', m_str, dpi=300)
+		self.save_file(f'Heatmaps_by_MT/Bias/By_Model/{m_str}', f'{transformation.id}', dpi=400, close=False)
+		self.save_file(f'Heatmaps_by_MT/Bias/By_Transform/{transformation.id}', m_str, dpi=400)
 
 	def plot_best_transform_heatmaps(self, rho, pi, model, metrics, n=n):
 		rows = ['C_graph-Best Transform', 'C_embed-Best Transform']
@@ -446,131 +446,7 @@ class Plotter:
 					spine.set_linewidth(1)
 
 		plt.tight_layout()
-		self.save_file('Best_Transform', f'Grid_{model.name}_{rho}_{pi}', dpi=300)
-
-	def plot_best_transform_lines(self, rho, pi, model, metrics, p22 = f'fixed', n=n):
-		def darken_color(color, factor=0.5, alpha=0.5):
-			rgb = np.array(mpl.colors.to_rgb(color))
-			darkened = rgb * factor
-			return (darkened[0], darkened[1], darkened[2], alpha)
-
-		chernoffs = CHERNOFFS_ID[1:]
-
-		fixed_param, fixed_param_val = metrics['fixed_param']
-		varying_param = fixed_param[:-1] + str(3 - int(fixed_param[-1]))
-		fixed_param_val = str(fixed_param_val)[:3]
-		if fixed_param[-2:] == '11':
-			p11 = fixed_param_val
-			p12 = model.param_name + sub('12')
-			p22 = model.p22_fixed if p22 == 'fixed' else p11
-		else:
-			p11 = model.param_name + sub('11')
-			p12 = fixed_param_val
-			p22 = model.p22_fixed if p22 == 'fixed' else p11
-
-		fig, axes = plt.subplots(2, 1, figsize=(10, 12))
-		suptitle_str = f"Best Transform Metrics on Model: {model.instance_name_str(param_init(p11, p12, p22))}\nf{model_str(n, rho, pi)}"
-		fig.suptitle(suptitle_str, fontsize=14)
-
-		N = len(metrics[TRANSFORMS[0]]['Rand'])
-		x = linspace_exclusive(0, 1, N)
-
-		ax1, ax2 = axes
-		for t in TRANSFORMS:
-			y = metrics[t]['Rand']
-			ax1.plot(x, y,
-					label=f"{t.name}:\n Avg(Rand) = {np.mean(y):.2f}, Lead Ratio = {metrics[t]['Ahead Ratio']:.2f}",
-					color=TRANSFORMS_CMAP[t],
-					linewidth=2)
-			ax2.plot(x, y,
-					label=f"",
-					color=darken_color(TRANSFORMS_CMAP[t]),
-					linewidth=1)
-		
-		for i, C in enumerate(chernoffs):
-			mBestC = metrics[f'{C}-Best Transform']
-			y_best = mBestC['Rand']
-
-			shift = 0.01 * (i - (len(chernoffs) - 1) / 2)
-			
-			ax2.plot(x, y_best + shift,
-					label=(f"{C}-Best Transform:\n"
-							f"Avg(Rand) = {mBestC['Rand Avg']:.2f}\nLead Ratio = {mBestC['Ahead Ratio']:.2f}\n"
-							f"Area(Regret) = {mBestC['Regret Avg']:.2f}"),
-					color=CHERNOFFS_ID_COSMETIC_MAP[C],
-					linewidth=3,
-					alpha = 0.75)
-			
-			
-		ax1.set_title(f"Transforms RAND", fontsize=12)
-		ax2.set_title(f"Best Transforms RAND", fontsize=12)
-		ax2.set_xlabel(sub(varying_param), fontsize=14)
-		for ax in [ax1, ax2]:
-			ax.set_ylim(-0.1, 1.05)
-			ax.set_xlim(0, 1)
-			ax.set_ylabel("Rand index", fontsize=12)
-			ax.set_xticks(np.linspace(0, 1, 5))
-			ax.legend(handlelength=2, handleheight=2, fontsize=9)
-		
-		plt.tight_layout()
-		self.save_file('Best_Transform', f'Line_{model.name}_{rho}_{pi}_{fixed_param}_{fixed_param_val}', dpi=300)
-
-	def plot_best_transform_lines_light(self, rho, pi, model, metrics, n=n):
-		def darken_color(color, factor=0.5, alpha=0.5):
-			rgb = np.array(mpl.colors.to_rgb(color))
-			darkened = rgb * factor
-			return (darkened[0], darkened[1], darkened[2], alpha)
-
-		chernoffs = CHERNOFFS_ID[1:]
-
-		fixed_param, fixed_param_val = metrics['fixed_param']
-		varying_param = fixed_param[:-1] + str(3 - int(fixed_param[-1]))
-		fixed_param_val = str(fixed_param_val)[:3]
-		
-		fig, axes = plt.subplots(2, 1, figsize=(10, 10))
-		fig.suptitle(f"Accuracy of Transforms\n", fontsize=16)
-
-		N = len(metrics[TRANSFORMS[0]]['Rand'])
-		x = linspace_exclusive(0, 1, N)
-
-		ax1, ax2 = axes
-		for t in TRANSFORMS:
-			y = metrics[t]['Rand']
-			y_std = metrics[t]['std']['Rand']
-			ax1.plot(x, y,
-					label=f"{t.name}:\n Avg(Acc) = {np.mean(y):.2f}, Lead Ratio = {metrics[t]['Ahead Ratio']:.2f}",
-					color=TRANSFORMS_CMAP[t],
-					linewidth=2)
-			ax1.fill_between(x, y - y_std, y + y_std, color=TRANSFORMS_CMAP[t], alpha=0.1)
-			ax2.plot(x, y,
-					label=f"",
-					color=darken_color(TRANSFORMS_CMAP[t]),
-					linewidth=1)
-		
-		for i, C in enumerate(chernoffs):
-			mBestC = metrics[f'{C}-Best Transform']
-			y_best = mBestC['Rand']
-
-			shift = 0.01 * (i - (len(chernoffs) - 1) / 2)
-			
-			ax2.plot(x, y_best + shift,
-					label=(f"Argmax {C} Transform:\n"
-							f"Avg(Acc) = {mBestC['Rand Avg']:.2f}\nLead Ratio = {mBestC['Ahead Ratio']:.2f}\n"
-							f"Area(Regret) = {mBestC['Regret Avg']:.2f}"),
-					color=CHERNOFFS_ID_COSMETIC_MAP[C],
-					linewidth=3,
-					alpha = 0.75)
-			
-		ax2.set_xlabel("\n"+sub(varying_param), fontsize=16)
-		for ax in [ax1, ax2]:
-			ax.set_ylim(-0.1, 1.05)
-			ax.set_xlim(0, 1)
-			ax.set_ylabel("Acc", fontsize=14)
-			ax.set_xticks(np.linspace(0, 1, 5))
-			ax.legend(handlelength=2, handleheight=2, fontsize=12)
-		
-		plt.tight_layout()
-		self.save_file('Best_Transform_Light', f'Line_{model.name}_{rho}_{pi}_{fixed_param}_{fixed_param_val}', dpi=400)
+		self.save_file('Best_Transform/By_Model', f'{model.name}_{rho}_{pi}', dpi=400)
 
 	def modulable_bar_plots(self, ax, L, fontsize=10):
 		x_offset = 0
@@ -856,7 +732,7 @@ class Plotter:
 
 	def plot_line_sliding(self, plotting_function, rho, pi, model, metrics_l, p22 = 'fixed', n = n, slider = 'p11'):		
 		description = model.param_name + sub(slider[1:])
-		N = len(metrics_g[RHOS_PIS_MODELS[0]][TRANSFORMS[0]]['Rand'])
+		N = len(metrics_l['p11'][0][RHOS_PIS_MODELS[0]][TRANSFORMS[0]]['Rand'])
 		x = linspace_exclusive(0, 1, N)
 		step = x[1] - x[0]  # assume uniform grid
 
