@@ -46,48 +46,14 @@ class TWSBMInstance:
 			B, C = self.model.theoretical_B_C(self.transformation)
 			self.C_true = self.__chernoff_information_graph(B, C, self.model.Π)
 
-		B_hat, C_hat, Π_hat = self.__empirical_B_C(self.A, self.Z_hat)
+		B_hat, C_hat, Π_hat = self.__empirical_B_C(self.A, self.Z_hat, B.shape[0])
 		self.C_graph = self.__chernoff_information_graph(B_hat, C_hat, Π_hat)
 
 		self.C_embedding = self.__chernoff_information_embedding(self.M, self.Σ, len(self.Z_hat))
 
 		self.RAND = adjusted_rand_score(self.Z, self.Z_hat)
-
-		"""
-		print(f"ρ = {self.model.ρ}, Π = {self.model.Π.ravel()} {self.model_name}, T = {self.transform_name}")
-
-		def MSE(U, U_hat):
-			U_hat_anti_T = np.rot90(U_hat, 2).T
-			return 1 / 3 * min(np.sum(np.triu((U - U_hat)**2)), np.sum(np.triu((U - U_hat_anti_T)**2)))
-
-		B_hat_Z_true, C_hat_Z_true, _ = self.__empirical_B_C(self.A, self.Z)
-
-		print(f"MSE B = {MSE(B, B_hat_Z_true):.6f}")
-		print(f"MSE C = {MSE(C, C_hat_Z_true):.6f}")"""
-
-	"""
-	def __empirical_B_C(self, A, Z):
-		K = len(np.unique(Z))
-		B, C, Π = np.zeros((K, K)), np.zeros((K, K)), np.zeros((K, K))
-
-		t_idx = np.triu_indices_from(A, k=1)
-		Z_row, Z_col = Z[t_idx[0]], Z[t_idx[1]]
-
-		for k, l in product(range(K), repeat=2):
-			mask = (Z_row == k) & (Z_col == l) | (Z_row == l) & (Z_col == k)
-			block_values = A[t_idx][mask].flatten()
-
-			if k == l:
-				Π[k, l] = np.count_nonzero(Z == k) / len(Z)
-
-			if block_values.size:
-				B[k, l] = block_values.mean()
-				C[k, l] = block_values.var(ddof = block_values.size > 1)
-
-		return B, C, Π"""
 	
-	def __empirical_B_C(self, A, Z):
-		K     = len(np.unique(Z))
+	def __empirical_B_C(self, A, Z, K = None):
 		nodes = np.bincount(Z, minlength=K)
 		edges = nodes[:, None] * nodes[None, :] - np.diag(nodes)
 		Π     = np.diag(nodes / len(Z))
@@ -121,12 +87,11 @@ class TWSBMInstance:
 	def __chernoff_information_graph(self, B, C, Π):	
 		K = B.shape[0]
 		e = np.eye(K)
-		C += np.eye(K) * np.finfo(float).tiny
 
 		def objective(t, k, l):
 			S_kl_t = (1 - t) * np.diag(C[k]) + t * np.diag(C[l])
-			ek_el = (e[k] - e[l])[:, None]
-			matrix_res = ek_el.T @ B @ Π @ np.linalg.inv(S_kl_t) @ B @ ek_el
+			u = B @ (e[k] - e[l])
+			matrix_res = u.T @ Π @ np.linalg.lstsq(S_kl_t, u, rcond=None)[0]
 			return 0.5 * t * (1 - t) * matrix_res.item()
 		
 		def neg_objective(t, k, l):

@@ -29,6 +29,14 @@ def best_transform_metrics(m):
 	m['Rand Max'] = np.max(Rand, axis=-1)
 
 	for t in TRANSFORMS:
+		regret = m['Rand Max'] - m[t]['Rand']
+
+		m[t]['Rand Avg'] = np.mean(m[t]['Rand'])
+		m[t]['Regret Avg'] = np.mean(regret)
+		m[t]['Regret Area'] = np.count_nonzero(regret) / np.prod(regret.shape)
+		m[t]['Regret Avg on Positive Regret'] = np.mean(regret[regret > 0])
+		m[t]['Rand Avg on Positive Regret'] = np.mean(m[t]['Rand'][regret > 0])
+		m[t]['Rand Avg on Null Regret'] = np.mean(m[t]['Rand'][regret == 0])
 		m[t]['Ahead Ratio'] = np.mean(m[t]['Rand'] == m['Rand Max'])
 
 	for C in ['C_true', 'C_graph', 'C_embed']:

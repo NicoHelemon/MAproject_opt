@@ -9,8 +9,6 @@ from tqdm import tqdm
 from Objects.TWSBMInstance import *
 
 
-
-
 def simulate_in_grid(N, batch, rep, model, model_params, transformations,
 					 p22='fixed', emb_mode='sqrt-scaled'):
 	

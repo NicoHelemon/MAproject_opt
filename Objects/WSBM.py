@@ -284,7 +284,11 @@ TRANSFORMS_MAP = {t.id : t for t in TRANSFORMS}
 METRICS_ID = ['Rand', 'C_true', 'C_graph', 'C_embed']
 METRICS_NAME = ["Rand index", "True Chernoff information", "Chernoff graph-estimation", "Chernoff embedding-estimation"]
 METRICS_MAP = dict(zip(METRICS_ID, METRICS_NAME))
-METRICS_ID_COSMETIC_MAP = {'C_true' : f'C{sup("true")}', 'C_graph' : f'C{sup("graph")}', 'C_embed' : f'C{sup("embed")}'}
+
+CHERNOFFS_ID = ['C_true', 'C_graph', 'C_embed']
+CHERNOFFS_ID_COSMETIC_MAP = dict(zip(CHERNOFFS_ID, [f'C{sup("true")}', f'C{sup("graph")}', f'C{sup("embed")}']))
+CHERNOFFS_CMAP = dict(zip(CHERNOFFS_ID, ['yellow', 'cyan', 'magenta']))
+
 
 BIASES = ['abs', 'rel', 'log']
 BIASES_NAME = ['Absolute bias', 'Relative bias', 'Log-ratio bias']

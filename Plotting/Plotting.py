@@ -5,6 +5,7 @@ import seaborn as sns
 import ipywidgets as widgets
 from scipy.stats import spearmanr
 from matplotlib import colors
+from ipywidgets import interact
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.patches import Patch
 from matplotlib.colors import ListedColormap, BoundaryNorm
@@ -115,7 +116,7 @@ class Plotter:
 				vmin = 0.0
 				vmax = 1.0
 			else:
-				vals = np.concatenate([metrics[m_id] for m_id in METRICS_ID[1:]])
+				vals = np.concatenate([metrics[m_id] for m_id in CHERNOFFS_ID])
 				vals = vals[vals > 0]
 				vmin = np.log(np.min(vals))
 				vmax = np.log(np.max(vals))
@@ -137,7 +138,7 @@ class Plotter:
 			x = transform(x)
 			return x, y, corr, auc_corr, abs_max
 
-		for i, (ax, m_id) in enumerate(zip(axes[0], METRICS_ID[1:])):
+		for i, (ax, m_id) in enumerate(zip(axes[0], CHERNOFFS_ID)):
 			cmap = cm.viridis
 			nc = len(RHOS)
 			for j, rho in enumerate(RHOS):
@@ -161,7 +162,7 @@ class Plotter:
 			f'AUC(Partial S-corr) = {auc_corr:.2f}, Max(Partial S-corr) = {abs_max:.2f}')
 			ax.set_title(title, fontsize=12)
 
-		for i, (ax, m_id) in enumerate(zip(axes[1], METRICS_ID[1:])):
+		for i, (ax, m_id) in enumerate(zip(axes[1], CHERNOFFS_ID)):
 			cmap = cm.plasma
 			nc = len(PIS)
 			for j, pi in enumerate(PIS):
@@ -176,7 +177,7 @@ class Plotter:
 				
 			scatter_polishing(ax, i)
 
-		for i, (ax, m_id) in enumerate(zip(axes[2], METRICS_ID[1:])):
+		for i, (ax, m_id) in enumerate(zip(axes[2], CHERNOFFS_ID)):
 			cmap = cm.inferno
 			nc = len(MODELS)
 			for j, model in enumerate(MODELS):
@@ -192,13 +193,13 @@ class Plotter:
 			scatter_polishing(ax, i)
 
 		def transform_str(m_id):
-			m_id_str = METRICS_ID_COSMETIC_MAP[m_id]
+			m_id_str = CHERNOFFS_ID_COSMETIC_MAP[m_id]
 			if C_transform == 'Sigmoid-Ln':
 				return f'\nSigmoid(ln({m_id_str}))'
 			else:
 				return f'\nln({m_id_str})'
 
-		for i, (ax, m_id) in enumerate(zip(axes[3], METRICS_ID[1:])):
+		for i, (ax, m_id) in enumerate(zip(axes[3], CHERNOFFS_ID)):
 			for t in TRANSFORMS:
 				x, y, corr, auc_corr, max_corr = get_xysc(t, m_id)
 				label_str = (f'{t.name}: '
@@ -217,8 +218,9 @@ class Plotter:
 
 	def plot_metrics_heatmap(self, rho, pi, model, transformation, metrics, shared = False, log = False, corr_info = True, n = n):
 		if shared:
-			values = np.concatenate([metrics[m_id] for m_id in METRICS_ID[1:]])
+			values = np.concatenate([metrics[m_id] for m_id in CHERNOFFS_ID])
 			vmin, vmax = np.min(values[values > 0]), np.max(values)
+			# use quantiles to set vmin and vmax
 		else:
 			vmin = vmax = None
 		
@@ -271,7 +273,7 @@ class Plotter:
 							handle.set_markerfacecolor('yellow')
 							handle.set_alpha(0.5)
 
-					ax_ins.set_title(f"Spearman‑corr(R, {METRICS_ID_COSMETIC_MAP[m_id]})", fontsize=8)
+					ax_ins.set_title(f"Spearman‑corr(R, {CHERNOFFS_ID_COSMETIC_MAP[m_id]})", fontsize=8)
 
 			ax.set_title(METRICS_MAP[m_id])
 			ax.set_xticks(np.linspace(0, N, 5))
@@ -305,8 +307,8 @@ class Plotter:
 			min_corrs, max_corrs = np.min(corrs), np.max(corrs)
 			abs_max = min_corrs if abs(min_corrs) > abs(max_corrs) else max_corrs
 			ax.plot(ns, corrs)
-			ax.set_xlabel(f"Top % {METRICS_ID_COSMETIC_MAP[m_id]}-largest points considered")
-			ax.set_ylabel(f'S-correlation({METRICS_ID_COSMETIC_MAP["C_true"]}, {METRICS_ID_COSMETIC_MAP[m_id]} Top%)')
+			ax.set_xlabel(f"Top % {CHERNOFFS_ID_COSMETIC_MAP[m_id]}-largest points considered")
+			ax.set_ylabel(f'S-correlation({CHERNOFFS_ID_COSMETIC_MAP["C_true"]}, {CHERNOFFS_ID_COSMETIC_MAP[m_id]} Top%)')
 			ax.set_ylim(-1.05, 1.05)
 			ax.set_xticks([0, 25, 50, 75, 100])
 			ax.set_yticks([-1, -0.5, 0, 0.5, 1])
@@ -330,7 +332,7 @@ class Plotter:
 				handle.set_markeredgewidth(0.5)
 				handle.set_markeredgecolor('black')
 
-			ax.set_title(f'Spearman‑corr({METRICS_ID_COSMETIC_MAP["C_true"]}, {METRICS_ID_COSMETIC_MAP[m_id]})')
+			ax.set_title(f'Spearman‑corr({CHERNOFFS_ID_COSMETIC_MAP["C_true"]}, {CHERNOFFS_ID_COSMETIC_MAP[m_id]})')
 		
 		for axbias, bias in zip(axes[1:], BIASES):
 			for ax, m_id in zip(axbias, METRICS_ID[2:]):
@@ -353,7 +355,7 @@ class Plotter:
 					cmap = 'Blues'
 					
 				sns.heatmap(bias_grid, ax=ax, cmap=cmap, norm=norm)
-				ax.set_title(f'{BIASES_MAP[bias]} {METRICS_ID_COSMETIC_MAP[m_id]} vs {METRICS_ID_COSMETIC_MAP["C_true"]}')
+				ax.set_title(f'{BIASES_MAP[bias]} {CHERNOFFS_ID_COSMETIC_MAP[m_id]} vs {CHERNOFFS_ID_COSMETIC_MAP["C_true"]}')
 				ax.set_xticks(np.linspace(0, N, 5))
 				ax.set_xticklabels(np.linspace(0, 1, 5).round(2))
 				ax.set_yticks(np.linspace(0, N, 5))
@@ -424,7 +426,7 @@ class Plotter:
 					ax.legend(handles=[handle_avg, handle_area, handle_avg_positive_r], loc="upper left",
 							handlelength=0, handleheight=0)
 
-				title = f'{METRICS_ID_COSMETIC_MAP[row[:7]]}-Best Transform{": " + col if col != "Arg" else ""}'
+				title = f'{CHERNOFFS_ID_COSMETIC_MAP[row[:7]]}-Best Transform{": " + col if col != "Arg" else ""}'
 				ax.set_title(title)
 
 				ticks = np.linspace(0, N, 5)
@@ -452,9 +454,7 @@ class Plotter:
 			darkened = rgb * factor
 			return (darkened[0], darkened[1], darkened[2], alpha)
 
-		chernoffs = ['C_true', 'C_graph', 'C_embed']
-		best_transform_colors = dict(zip(chernoffs, ['magenta', 'cyan', 'yellow']))
-		chernoffs = chernoffs[1:]
+		chernoffs = CHERNOFFS_ID[1:]
 
 		fixed_param, fixed_param_val = metrics['fixed_param']
 		varying_param = fixed_param[:-1] + str(3 - int(fixed_param[-1]))
@@ -497,7 +497,7 @@ class Plotter:
 					label=(f"{C}-Best Transform:\n"
 							f"Avg(Rand) = {mBestC['Rand Avg']:.2f}\nLead Ratio = {mBestC['Ahead Ratio']:.2f}\n"
 							f"Area(Regret) = {mBestC['Regret Avg']:.2f}"),
-					color=best_transform_colors[C],
+					color=CHERNOFFS_ID_COSMETIC_MAP[C],
 					linewidth=3,
 					alpha = 0.75)
 			
@@ -521,9 +521,7 @@ class Plotter:
 			darkened = rgb * factor
 			return (darkened[0], darkened[1], darkened[2], alpha)
 
-		chernoffs = ['C_true', 'C_graph', 'C_embed']
-		best_transform_colors = dict(zip(chernoffs, ['magenta', 'cyan', 'yellow']))
-		chernoffs = chernoffs[1:]
+		chernoffs = CHERNOFFS_ID[1:]
 
 		fixed_param, fixed_param_val = metrics['fixed_param']
 		varying_param = fixed_param[:-1] + str(3 - int(fixed_param[-1]))
@@ -559,7 +557,7 @@ class Plotter:
 					label=(f"Argmax {C} Transform:\n"
 							f"Avg(Acc) = {mBestC['Rand Avg']:.2f}\nLead Ratio = {mBestC['Ahead Ratio']:.2f}\n"
 							f"Area(Regret) = {mBestC['Regret Avg']:.2f}"),
-					color=best_transform_colors[C],
+					color=CHERNOFFS_ID_COSMETIC_MAP[C],
 					linewidth=3,
 					alpha = 0.75)
 			
@@ -573,3 +571,314 @@ class Plotter:
 		
 		plt.tight_layout()
 		self.save_file('Best_Transform_Light', f'Line_{model.name}_{rho}_{pi}_{fixed_param}_{fixed_param_val}', dpi=400)
+
+	def modulable_bar_plots(self, ax, L, fontsize=10):
+		x_offset = 0
+		x_centers = []
+
+		for tuple in L:
+			space_0 = tuple[0][-1]
+			x_offset_start = x_offset + space_0
+			for area, height, height_2, text, text_2, color, space in tuple:
+				x_offset += space
+				ax.bar(x_offset, height, width=area, color=color, align='edge')
+				ax.bar(x_offset, height_2, width=area, bottom=height, color='grey', align='edge')
+				ax.text(x_offset + area/2, height/2, str(text), ha='center', va='center', fontsize=fontsize)
+				ax.text(x_offset + area/2, height + height_2/2, str(text_2), ha='center', va='center', fontsize=fontsize)
+				x_offset += area
+
+			x_centers.append(x_offset_start + (x_offset - x_offset_start) / 2)
+			
+		ax.set_xticks(x_centers)
+
+		return x_offset + space_0
+	
+	def plot_transforms_rand(self, metrics_g, mode = 'No regret'):
+		_, ax = plt.subplots(figsize=(10, 6))
+
+		chernoffs = CHERNOFFS_ID.copy()
+		transforms = TRANSFORMS.copy()
+
+		transforms_with_argmax_C = transforms + [f"{chernoff}-Best Transform" for chernoff in chernoffs]
+		transforms_with_argmax_C.sort(key=lambda t: metrics_g[t]['Rand Avg'], reverse=True)
+
+		m_transforms = {t : metrics_g[t] for t in transforms_with_argmax_C}
+
+		def color_helper(t):
+			if isinstance(t, str):
+				return CHERNOFFS_CMAP[t.split('-')[0]]
+			else:
+				return TRANSFORMS_CMAP[t]
+			
+		if mode == 'No regret':
+			L = [((1,
+				m['Rand Avg'], 
+				#m['Regret Avg'],
+				0,
+				f"{m['Rand Avg']:.2f}",
+				#f"{m['Regret Avg']:.2f}",
+				"",
+				color_helper(t), 
+				0.1),) for t, m in m_transforms.items()]
+		elif mode == 'With regret':
+			L1 = [(1 - m['Regret Area'],
+				m['Rand Avg on Null Regret'],
+				0,
+				#f"{m['Rand Avg on Null Regret']:.2f}",
+				"",
+				"",
+				color_helper(t),
+				0.1) for t, m in m_transforms.items()]
+			L2 = [(m['Regret Area'],
+				m['Rand Avg on Positive Regret'],
+				m['Regret Avg on Positive Regret'],
+				#f"{m['Rand Avg on Positive Regret']:.2f}",
+				#f"{m['Regret Avg on Positive Regret']:.2f}",
+				"", "",
+				color_helper(t),
+				0.025) for t, m in m_transforms.items()]
+
+			L = zip(L1, L2)
+
+			L1_perc = [(1 - m['Regret Area'], -0.05, 0, f"  {((1 - m['Regret Area']) * 100):.0f}%", 
+						"", "white", 0.1) for t, m in m_transforms.items()]
+			L2_perc = [(m['Regret Area'], -0.05, 0, f"  {(m['Regret Area'] * 100):.0f}%", 
+						"", "white", 0.025) for t, m in m_transforms.items()]
+
+			L_perc = zip(L1_perc, L2_perc)
+			self.modulable_bar_plots(ax, L_perc, fontsize=8)
+		else:
+			raise ValueError("Invalid mode. Choose 'No regret' or 'With regret'.")
+
+		x_offset = self.modulable_bar_plots(ax, L)
+
+		def label_helper(t):
+			if isinstance(t, str):
+				return CHERNOFFS_ID_COSMETIC_MAP[t.split('-')[0]]
+			else:
+				return t.id
+
+		ax.hlines(0, 0, x_offset, color='black', lw=0.5)
+		ax.set_xticklabels([label_helper(t) for t in transforms_with_argmax_C])
+		ax.set_ylabel('Avg Rand')
+		ax.set_xlim(-0.25, x_offset+0.25)
+		
+		if mode == 'No regret':
+			ax.set_title(f'Transformations Average Rand (over {len(RHOS_PIS_MODELS)} graph models)\n')
+			Avg_Rand_Max = np.mean(metrics_g['Rand Max'])
+			ax.hlines(Avg_Rand_Max, 0, 
+					x_offset, color='black', lw=1, label=f'Avg(Rand Max): {Avg_Rand_Max:.2f}', linestyle='--')
+			ax.legend()
+			ax.set_ylim(-0.05, 1)
+			ax.set_xlabel('\nTransformations')
+
+		if mode == 'With regret':
+			ax.set_title(f'Transformations Average Rand & Regret (over {len(RHOS_PIS_MODELS)} graph models)\nConditioned on Null Regret vs Positive Regret\n')
+			ax.set_xlabel('\n\nTransformations')
+			ax.text(
+				x_offset/2,
+				-0.09,
+				"(Null Regret vs Positive Regret Ratio)", 
+				transform=ax.get_xaxis_transform(),
+				ha="center", va="top",
+				fontsize=8)
+			ax.set_ylim(-0.075, 1)
+			ax.set_ylim(-0.05, 1.05)
+
+		mode = 'No_Regret' if mode == 'No regret' else 'With_Regret'
+		self.save_file('Best_Transform', f'Transforms_Rands_{mode}', dpi=400)
+
+	def plot_transforms_rand_for_best_transform(self, metrics_g, chernoff):
+		_, ax = plt.subplots(figsize=(10, 6))
+
+		m_chernoff = metrics_g[f"{chernoff}-Best Transform"]
+
+		def t_area(t):
+			return m_chernoff['Transform Area'][TRANSFORMS.index(t)]
+
+		transforms = TRANSFORMS.copy()
+		transforms.sort(key=lambda t: t_area(t), reverse=True)
+		transforms = [t for t in transforms if t_area(t) > 0.01]
+
+		m_transforms = {t : m_chernoff[t] for t in transforms}
+			
+		L = [((t_area(t), 
+			m['Rand Avg'], 
+			m['Regret Avg'],
+			f"{m['Rand Avg']:.2f}" if t_area(t) > 0.06 and m['Rand Avg'] > 0.045 else "",
+			f"{m['Regret Avg']:.2f}" if t_area(t) > 0.06 and m['Regret Avg'] > 0.045 else "",
+			TRANSFORMS_CMAP[t], 
+			0.01),) for t, m in m_transforms.items()]
+
+		x_offset = self.modulable_bar_plots(ax, L)
+
+		L_perc = [((t_area(t), -0.05, 0, f"  {((t_area(t)) * 100):.0f}%", "", "white", 0.01),) for t in transforms]
+		
+		self.modulable_bar_plots(ax, L_perc, fontsize=8)
+
+		ax.hlines(0, 0, x_offset, color='black', lw=0.5)
+		ax.set_xticklabels([t.id for t in transforms], rotation=45)
+		ax.text(
+				x_offset/2,
+				-0.1,
+				"(Transformations Selection Proportions)", 
+				transform=ax.get_xaxis_transform(),
+				ha="center", va="top",
+				fontsize=8)
+		ax.set_xlabel('\nTransformations')
+		ax.set_ylabel('Avg Rand')
+		ax.set_ylim(-0.075, 1.05)
+		ax.set_xlim(-0.05, x_offset+0.05)
+		ax.set_title(f'{CHERNOFFS_ID_COSMETIC_MAP[chernoff]}-Best Transform underlying Transformations Selection\nAverage Rand & Regret (over {len(RHOS_PIS_MODELS)} graph models)\n')
+
+		self.save_file('Best_Transform', f'{chernoff}_Best_Transform_Transforms_Rands', dpi=400)
+
+	def plot_best_transform_lines(self, rho, pi, model, metrics_l, p11, p12, p22 = 'fixed', n = n):
+		def darken_color(color, factor=0.5, alpha=0.5):
+			rgb = np.array(mpl.colors.to_rgb(color))
+			darkened = rgb * factor
+			return (darkened[0], darkened[1], darkened[2], alpha)
+
+		assert isinstance(p11, int) and p12 == 'varying' or p11 == 'varying' and isinstance(p12, int)
+
+		if p11 == 'varying':
+			metrics = metrics_l['p12'][p12][(rho, pi, model)]
+		else:
+			metrics = metrics_l['p11'][p11][(rho, pi, model)]
+
+		chernoffs = CHERNOFFS_ID.copy()
+		N = len(metrics[TRANSFORMS[0]]['Rand'])
+		x = linspace_exclusive(0, 1, N)
+
+		if p11 == 'varying':
+			p11 = model.param_name + sub('11')
+			varying_param = p11
+			p12 = round(x[p12], 2)		
+		else:
+			p11 = round(x[p11], 2)
+			p12 = model.param_name + sub('12')
+			varying_param = p12
+		p22 = model.p22_fixed if p22 == 'fixed' else p11
+
+		fig, axes = plt.subplots(2, 1, figsize=(10, 12))
+		suptitle_str = f"Best Transform Metrics on Model: {model.instance_name_str(param_init(p11, p12, p22))}\n{model_str(n, rho, pi)}"
+		fig.suptitle(suptitle_str, fontsize=14)
+
+		ax1, ax2 = axes
+		for t in TRANSFORMS:
+			y = metrics[t]['Rand']
+			y_std = metrics[t]['std']['Rand']
+			ax1.plot(x, y,
+					label=f"{t.name}:\n Avg(Rand) = {np.mean(y):.2f}, Lead Ratio = {metrics[t]['Ahead Ratio']:.2f}",
+					color=TRANSFORMS_CMAP[t],
+					linewidth=2)
+			ax1.fill_between(x, y - y_std, y + y_std, color=TRANSFORMS_CMAP[t], alpha=0.1)
+			ax2.plot(x, y,
+					label=f"",
+					color=darken_color(TRANSFORMS_CMAP[t]),
+					linewidth=1)
+		
+		for i, C in enumerate(chernoffs):
+			mBestC = metrics[f'{C}-Best Transform']
+			y_best = mBestC['Rand']
+
+			shift = 0.02 * (i - (len(chernoffs) - 1) / 2)
+			
+			ax2.plot(x, y_best + shift,
+					label=(f"{C}-Best Transform:\n"
+							f"Avg(Rand) = {mBestC['Rand Avg']:.2f}\nLead Ratio = {mBestC['Ahead Ratio']:.2f}\n"
+							f"Area(Regret) = {mBestC['Regret Avg']:.2f}"),
+					color=CHERNOFFS_CMAP[C],
+					linewidth=5,
+					alpha = 0.75)
+			
+			
+		ax1.set_title(f"Transforms RAND", fontsize=12)
+		ax2.set_title(f"Best Transforms RAND", fontsize=12)
+		ax2.set_xlabel(sub(varying_param), fontsize=14)
+		for ax in [ax1, ax2]:
+			ax.set_ylim(-0.1, 1.05)
+			ax.set_xlim(0, 1)
+			ax.set_ylabel("Rand index", fontsize=12)
+			ax.set_xticks(np.linspace(0, 1, 5))
+			ax.legend(handlelength=2, handleheight=2, fontsize=9, loc='upper left')
+		
+		plt.tight_layout()
+		plt.gcf().set_dpi(400)
+		plt.show()
+
+	def plot_chernoffs_lines(self, rho, pi, model, metrics_l, p11, p12, p22 = 'fixed', n = n):
+		assert isinstance(p11, int) and p12 == 'varying' or p11 == 'varying' and isinstance(p12, int)
+
+		if p11 == 'varying':
+			metrics = metrics_l['p12'][p12][(rho, pi, model)]
+		else:
+			metrics = metrics_l['p11'][p11][(rho, pi, model)]
+
+		chernoffs = CHERNOFFS_ID.copy()
+		N = len(metrics[TRANSFORMS[0]]['Rand'])
+		x = linspace_exclusive(0, 1, N)
+
+		if p11 == 'varying':
+			p11 = model.param_name + sub('11')
+			varying_param = p11
+			p12 = round(x[p12], 2)		
+		else:
+			p11 = round(x[p11], 2)
+			p12 = model.param_name + sub('12')
+			varying_param = p12
+		p22 = model.p22_fixed if p22 == 'fixed' else p11
+
+		fig, axes = plt.subplots(3, 1, figsize=(10, 15))
+		suptitle_str = f"Best Transform Metrics on Model: {model.instance_name_str(param_init(p11, p12, p22))}\n{model_str(n, rho, pi)}"
+		fig.suptitle(suptitle_str, fontsize=14)
+		
+		chernoffs = CHERNOFFS_ID.copy()
+		
+		for ax, C in zip(axes, chernoffs):
+			for t in TRANSFORMS:
+				y =  metrics[t][C]
+				y_std = metrics[t]['std'][C]
+				ax.plot(x, y, label = t.name, color = TRANSFORMS_CMAP[t], linewidth=2)
+				ax.fill_between(x, y - y_std, y + y_std, color=TRANSFORMS_CMAP[t], alpha=0.1)
+				ax.set_xlim(0, 1)
+				ax.set_xticks(np.linspace(0, 1, 5))
+				ax.set_ylabel(CHERNOFFS_ID_COSMETIC_MAP[C], fontsize=12)
+				ax.legend(handlelength=2, handleheight=2, fontsize=9, loc='upper left')
+			
+			
+		axes[0].set_title(f"Chernoffs", fontsize=12)
+		axes[2].set_xlabel(sub(varying_param), fontsize=14)
+			
+		plt.tight_layout()
+		plt.gcf().set_dpi(400)
+		plt.show()
+
+	def plot_line_sliding(self, plotting_function, rho, pi, model, metrics_l, p22 = 'fixed', n = n, slider = 'p11'):		
+		description = model.param_name + sub(slider[1:])
+		N = len(metrics_g[RHOS_PIS_MODELS[0]][TRANSFORMS[0]]['Rand'])
+		x = linspace_exclusive(0, 1, N)
+		step = x[1] - x[0]  # assume uniform grid
+
+		def plot_best_transform_at(p_real):
+			# find the nearest integer index
+			j = int(np.round((p_real - x[0]) / step))
+			return plotting_function(
+				rho, pi, model, metrics_l,
+				p11=j if slider_name=='p11' else 'varying',
+				p12=j if slider_name=='p12' else 'varying',
+				p22=p22, n=n
+			)
+
+		# now build a slider whose values *are* the x’s
+		slider_name = 'p11'
+		slider = widgets.FloatSlider(
+			value=x[50],
+			min=x[0],
+			max=x[-1],
+			step=step,
+			description=description,
+			continuous_update=False
+		)
+
+		interact(plot_best_transform_at, p_real=slider)
