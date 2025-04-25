@@ -89,11 +89,12 @@ class betaWSBM(WSBM):
 		np.random.seed(seed)
 		# Community membership
 		Z = np.random.choice(np.arange(self.K), size=self.n, p=np.diag(self.Π))
+		Z_i, Z_j = Z[:, None], Z[None, :]
 		
 		# Mixture model (1-ρ)δ_0 + ρBeta(α_{Z_i,Z_j}, 1)
 		A = np.zeros((self.n, self.n))
-		mask = np.random.rand(self.n, self.n) < self.ρ
-		A[mask] = beta.rvs(self.α[Z[:, None], Z[None, :]][mask], 1)
+		drawn_edges_idx = np.random.rand(self.n, self.n) < self.ρ
+		A[drawn_edges_idx] = beta.rvs(self.α[Z_i, Z_j][drawn_edges_idx], 1)
 		
 		A = np.triu(A) + np.triu(A, 1).T
 		np.fill_diagonal(A, 0)
@@ -147,6 +148,10 @@ class betaWSBM(WSBM):
 			B = ρ * (τ_q ** α)
 			C = B * (1 - B)
 			return B, C
+		elif isinstance(T, PowerTransform):
+			B = ρ * α / (α + T.γ)
+			C = ρ * α / (α + 2.0*T.γ) - B**2
+			return B, C
 		else:
 			raise ValueError("Invalid transformation T")
 	
@@ -192,12 +197,22 @@ class lognormWSBM(WSBM):
 		np.random.seed(seed)
 		# Community membership
 		Z = np.random.choice(np.arange(self.K), size=self.n, p=np.diag(self.Π))
+		Z_i, Z_j = Z[:, None], Z[None, :]
 		
 		# Mixture model (1-ρ)δ_0 + ρLognorm(Σ_{Z_i,Z_j}, ExpMu_{Z_i,Z_j})
 		A = np.zeros((self.n, self.n))
-		mask = np.random.rand(self.n, self.n) < self.ρ
-		A[mask] = lognorm.rvs(s=self.Σ[Z[:, None], Z[None, :]][mask],
-									scale=lognormWSBM.ExpMu[Z[:, None], Z[None, :]][mask])
+		drawn_edges_idx = np.random.rand(self.n, self.n) < self.ρ
+
+		s = self.Σ[Z_i, Z_j][drawn_edges_idx]
+		scale = lognormWSBM.ExpMu[Z_i, Z_j][drawn_edges_idx]
+		
+		edges = lognorm.rvs(s=s, scale=scale, size=s.shape)
+		above_1 = edges > 1
+		while np.any(above_1):
+			edges[above_1] = lognorm.rvs(s[above_1], scale=scale[above_1], size=above_1.sum())
+			above_1 = edges > 1
+
+		A[drawn_edges_idx] = edges
 
 		A = np.triu(A) + np.triu(A, 1).T
 		np.fill_diagonal(A, 0)
@@ -258,6 +273,15 @@ class lognormWSBM(WSBM):
 			B = ρ * norm.cdf((np.log(τ_q) - Mu) / Σ)
 			C = B * (1 - B)
 			return B, C
+		elif isinstance(T, PowerTransform):
+			γM = T.γ * Mu
+			γΣ = T.γ * Σ
+			γE1 = np.exp(γM + γΣ ** 2 / 2)
+			γE2 = np.exp(2 * γM + 2 * γΣ ** 2)
+
+			B = ρ * γE1
+			C = ρ * γE2 - B**2
+			return B, C
 		else:
 			raise ValueError(f"Invalid transformation {T}")
 
@@ -270,13 +294,22 @@ ALPHAS = [(0.1, 1.0), (0.5, 0.5)]
 SIGMAS = [(1, 0.5), (0.1, 0.5)]
 MODELS = [betaWSBM, lognormWSBM]
 MODELS_AND_PARAMS = list(product([betaWSBM], ALPHAS)) + list(product([lognormWSBM], SIGMAS))
+"""
 TRANSFORMS = [IdentityTransform(), 
 			  OppositeTransform(), 
 			  LogTransform(), 
 			  ThresholdTransform(),
 			  RankTransform(),
 			  QuantileTransform()]
-TRANSFORMS_THR_QTL = [ThresholdTransform(τ=0.01), ThresholdTransform(τ=0.05), ThresholdTransform(τ=0.1), QuantileTransform(q=0.1), QuantileTransform(q=0.25), QuantileTransform(q=0.5)]
+			  """
+TRANSFORMS = [IdentityTransform(),
+			  PowerTransform(γ=2),
+			  LogTransform(),
+			  QuantileTransform(q=0.05),
+			  QuantileTransform(q=0.25),
+			  RankTransform()]
+TRANSFORMS_QTL = [QuantileTransform(q=0.01), QuantileTransform(q=0.05), QuantileTransform(q=0.1), QuantileTransform(q=0.25), QuantileTransform(q=0.5)]
+TRANSFORMS_POW = [PowerTransform(γ=0.25), PowerTransform(γ=0.5), PowerTransform(γ=1), PowerTransform(γ=2.0), PowerTransform(γ=3.0)]
 RHOS_PIS_MODELS = list(product(RHOS, PIS, MODELS))
 
 TRANSFORMS_ID = [t.id for t in TRANSFORMS]
@@ -294,8 +327,10 @@ BIASES = ['abs', 'rel', 'log']
 BIASES_NAME = ['Absolute bias', 'Relative bias', 'Log-ratio bias']
 BIASES_MAP = dict(zip(BIASES, BIASES_NAME))
 
-TRANSFORMS_CMAP = dict(zip(TRANSFORMS + ['Argmax'], ['blue', 'orange', 'green', 'red', 'purple', 'pink', 'black']))
+TRANSFORMS_CMAP = dict(zip(TRANSFORMS, ['blue', 'orange', 'green', 'red', 'pink', 'purple']))
 RHOS_PIS_MODELS_CMAP = dict(zip(RHOS_PIS_MODELS, sns.color_palette("tab10", len(RHOS_PIS_MODELS))))
+
+CMAP = CHERNOFFS_CMAP | TRANSFORMS_CMAP
 
 P22S = ['fixed', 'p11']
 EMB_MODES = ['sqrt-scaled', 'scaled', 'raw']

@@ -46,7 +46,7 @@ class LogTransform(WeightTransform):
 class ThresholdTransform(WeightTransform):
 	def __init__(self, τ = 0.05):
 		self.name = f"Threshold (τ = {τ})"
-		self.id = 'Thr'
+		self.id = f'Thr-{τ}'
 		self.τ = τ
 
 	def __call__(self, A):
@@ -74,11 +74,22 @@ class RankTransform(WeightTransform):
 class QuantileTransform(WeightTransform):
 	def __init__(self, q = 0.1):
 		self.name = f"Quantile (q = {q})"
-		self.id = 'Qtl'
+		self.id = f'Qtl-{q}'
 		self.q = q
 
 	def __call__(self, A):
 		tA = A.copy()
 		τ = np.quantile(tA[tA > 0], self.q)
 		tA[tA > 0] = (tA[tA > 0] <= τ).astype(float)
+		return tA
+	
+class PowerTransform(WeightTransform):
+	def __init__(self, γ = 2):
+		self.name = f"Power (γ = {γ})"
+		self.id = f'Pow-{γ}'
+		self.γ = γ
+
+	def __call__(self, A):
+		tA = A.copy()
+		tA = tA ** self.γ
 		return tA

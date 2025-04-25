@@ -119,10 +119,13 @@ def correlation(m):
 
 def aggregate_metrics(metrics):
 	for (rho, pi, m), t in product(RHOS_PIS_MODELS, TRANSFORMS):
-		metrics[f'rho:{rho}'] = {}
-		metrics[f'pi:{pi}']  = {}
-		metrics[m]   = {}
-		metrics[t]   = {}
+		metrics[f'rho:{rho}']	= {}
+		metrics[f'pi:{pi}']  	= {}
+		metrics[m]   			= {}
+		metrics[t]   			= {}
+
+	for m, t in product(MODELS, TRANSFORMS):
+		metrics[m][t] = {}
 			
 	for m_id in METRICS_ID:
 		metrics[m_id] = np.concatenate([metrics[rpm][t][m_id].ravel() 
@@ -143,6 +146,10 @@ def aggregate_metrics(metrics):
 		for model in MODELS:
 			metrics[model][m_id] = np.concatenate([metrics[(rho, pi, model)][t][m_id].ravel() 
 												   for rho, pi, t in product(RHOS, PIS, TRANSFORMS)])
+			
+			for t in TRANSFORMS:
+				metrics[model][t][m_id] = np.concatenate([metrics[(rho, pi, model)][t][m_id].ravel() 
+														   for rho, pi in product(RHOS, PIS)])
 		
 		for t in TRANSFORMS:
 			metrics[t][m_id] = np.concatenate([metrics[rpm][t][m_id].ravel() 
