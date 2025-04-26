@@ -226,6 +226,14 @@ class lognormWSBM(WSBM):
 		E1 = np.exp(Mu + Σ ** 2 / 2)
 		E2 = np.exp(2 * Mu + 2 * Σ ** 2)
 
+		α  = (np.log(1) - Mu) / Σ
+		t0 = norm.cdf(α)
+		t1 = norm.cdf(α - Σ) / t0
+		t2 = norm.cdf(α - 2*Σ) / t0
+
+		E1 = E1 * t1
+		E2 = E2 * t2
+
 		if T is None or isinstance(T, IdentityTransform):
 			B = ρ * E1
 			C = ρ * E2 - B**2
@@ -235,11 +243,15 @@ class lognormWSBM(WSBM):
 			C = ρ * (1 - 2*E1 + E2) - B**2
 			return B, C
 		elif isinstance(T, LogTransform):
-			B = -ρ * Mu
-			C = ρ * Σ ** 2 + ρ * (1 - ρ) * Mu ** 2
+			λ = norm.pdf(α) / t0
+			F1 = Mu - Σ * λ
+			F2 = Σ ** 2 * (1 - α*λ - λ**2)
+
+			B = -ρ * F1
+			C = ρ * F2 + ρ * (1 - ρ) * F1 ** 2
 			return B, C
 		elif isinstance(T, ThresholdTransform):
-			B = ρ * norm.cdf((np.log(T.τ) - Mu) / Σ)
+			B = ρ * norm.cdf((np.log(T.τ) - Mu) / Σ) / t0
 			C = B * (1 - B)
 			return B, C
 		elif isinstance(T, RankTransform):
@@ -251,8 +263,8 @@ class lognormWSBM(WSBM):
 			PDF = partial(lognorm.pdf,  s=Σ, scale=ExpMu)
 
 			def integrand(x):
-				PDF_x = PDF(x)
-				h_x = np.sum(P * CDF(x))
+				PDF_x = PDF(x) / t0
+				h_x = np.sum(P * CDF(x)) / t0
 
 				return np.stack((h_x * PDF_x, h_x**2 * PDF_x))
 			
@@ -266,18 +278,21 @@ class lognormWSBM(WSBM):
 			π = np.diag(self.Π)
 
 			def CDF(τ):
-				return (π[:, None] * π[None, :] * norm.cdf((np.log(τ) - Mu) / Σ)).sum()
+				return (π[:, None] * π[None, :] * norm.cdf((np.log(τ) - Mu) / Σ) / t0).sum()
 			
 			τ_q = brentq(lambda τ: CDF(τ) - T.q, np.finfo(float).tiny, 1)
 
-			B = ρ * norm.cdf((np.log(τ_q) - Mu) / Σ)
+			B = ρ * norm.cdf((np.log(τ_q) - Mu) / Σ) / t0
 			C = B * (1 - B)
 			return B, C
 		elif isinstance(T, PowerTransform):
-			γM = T.γ * Mu
-			γΣ = T.γ * Σ
-			γE1 = np.exp(γM + γΣ ** 2 / 2)
-			γE2 = np.exp(2 * γM + 2 * γΣ ** 2)
+			γ = T.γ
+			γM = γ * Mu
+			γΣ = γ * Σ
+			γt1 = norm.cdf(α - γ*Σ) / t0
+			γt2 = norm.cdf(α - 2*γ*Σ) / t0
+			γE1 = np.exp(γM + γΣ ** 2 / 2) * γt1
+			γE2 = np.exp(2 * γM + 2 * γΣ ** 2) * γt2
 
 			B = ρ * γE1
 			C = ρ * γE2 - B**2

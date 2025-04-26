@@ -8,6 +8,7 @@ from sklearn.mixture import GaussianMixture
 from scipy.optimize import minimize_scalar
 from scipy.sparse import csr_matrix
 from sklearn.metrics import adjusted_rand_score
+from sklearn.neighbors import LocalOutlierFactor
 
 from itertools import permutations, product
 

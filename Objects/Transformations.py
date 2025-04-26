@@ -74,7 +74,7 @@ class RankTransform(WeightTransform):
 class QuantileTransform(WeightTransform):
 	def __init__(self, q = 0.1):
 		self.name = f"Quantile (q = {q})"
-		self.id = f'Qtl-{q}'
+		self.id = f'Q-{int(q*100):02d}'
 		self.q = q
 
 	def __call__(self, A):

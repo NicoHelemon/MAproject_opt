@@ -387,7 +387,7 @@ class Plotter:
 		for i, C in enumerate(chernoffs):
 			for j, col in enumerate(cols):
 				ax = axes[i, j]
-				grid = metrics[C][col]
+				grid = metrics[f'{C}-Best Transform'][col]
 				N = grid.shape[0]
 
 				if col == 'Arg':
@@ -405,7 +405,7 @@ class Plotter:
 					sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Reds')
 
 					mean_rand_transforms_map = {t: np.mean(metrics[t]['Rand']) for t in TRANSFORMS}
-					mean_rand_transforms_map[C] = metrics[C]['Rand Avg']
+					mean_rand_transforms_map[C] = metrics[f'{C}-Best Transform']['Rand Avg']
 					case = lambda t : t.id if t in TRANSFORMS else t
 					sorted_TRANSFORMS = sorted(TRANSFORMS + [C], key=lambda t: mean_rand_transforms_map[t], reverse=True)
 					handles = [Patch(facecolor=CMAP[t], label=f'{case(t)}: {mean_rand_transforms_map[t]:.2f}') 
@@ -415,9 +415,9 @@ class Plotter:
 				else:
 					norm = colors.Normalize(vmin=0, vmax=1, clip=True)
 					sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Purples')
-					avg_regret = f"Avg(Reg) = {metrics[C]['Regret Avg']:.2f}"
-					area_positive_r = f"Area(Reg>0) = {metrics[C]['Regret Area']:.2f}"
-					avg_positive_r = f"Avg(Reg[Reg>0]) = {metrics[C]['Regret Avg on Positive Regret']:.2f}"
+					avg_regret = f"Avg(Reg) = {metrics[f'{C}-Best Transform']['Regret Avg']:.2f}"
+					area_positive_r = f"Area(Reg>0) = {metrics[f'{C}-Best Transform']['Regret Area']:.2f}"
+					avg_positive_r = f"Avg(Reg[Reg>0]) = {metrics[f'{C}-Best Transform']['Regret Avg on Positive Regret']:.2f}"
 
 					handle_avg = mpatches.Patch(facecolor='none', edgecolor='none', label=avg_regret)
 					handle_area = mpatches.Patch(facecolor='none', edgecolor='none', label=area_positive_r)
