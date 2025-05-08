@@ -6,6 +6,15 @@ from scipy.ndimage import convolve
 
 from Objects.WSBM import *
 
+def sigmoid_gmm_score(window_95 = 10, x0 = -5):
+	k  = np.log(19)/window_95
+	x0 = x0
+
+	def sigmoid(x):
+		return 1/(1 + np.exp(-k*(x - x0)))
+	
+	return sigmoid
+
 def kernel(window = 3, dim = 2, exterior_total_weight = None):
 	if exterior_total_weight is None: 
 		exterior_total_weight = dim * 0.5
@@ -21,14 +30,14 @@ def local_weighted_average(tensor, K = None):
 	M = M / convolve(np.ones(tensor.shape[:-1]), K, mode='constant', cval=0.0)
 	return M / tensor.shape[-1]
 
-def best_transform_metrics(m):
+def best_transform_metrics(m, transforms = TRANSFORMS_EXT.copy()):
 	def stack_grids(m, metric):
-		return np.stack([m[t][metric] for t in TRANSFORMS], axis=-1)
+		return np.stack([m[t][metric] for t in transforms], axis=-1)
 
 	Rand = stack_grids(m, 'Rand')
 	m['Rand Max'] = np.max(Rand, axis=-1)
 
-	for t in TRANSFORMS:
+	for t in transforms:
 		regret = m['Rand Max'] - m[t]['Rand']
 
 		m[t]['Rand Avg'] = np.mean(m[t]['Rand'])
@@ -39,12 +48,11 @@ def best_transform_metrics(m):
 		m[t]['Rand Avg on Null Regret'] = np.mean(m[t]['Rand'][regret == 0])
 		m[t]['Ahead Ratio'] = np.mean(m[t]['Rand'] == m['Rand Max'])
 
-	for C in ['C_true', 'C_graph', 'C_embed']:
+	for C in CHERNOFFS_ID:
 		m[f'{C}-Best Transform'] = {}
 		mBestC = m[f'{C}-Best Transform']
 		mBestC['Arg'] = np.argmax(stack_grids(m, C), axis=-1).astype(int)
-		#mBestC['Arg'] = np.clip(mBestC['Arg'], 1, None)
-		mBestC['Transform Area'] = np.bincount(mBestC['Arg'].ravel(), minlength=len(TRANSFORMS)) / np.prod(mBestC['Arg'].shape)
+		mBestC['Transform Area'] = np.bincount(mBestC['Arg'].ravel(), minlength=len(transforms)) / np.prod(mBestC['Arg'].shape)
 		mBestC['Rand'] = np.take_along_axis(Rand, mBestC['Arg'][..., None], axis=-1).squeeze(-1)
 		mBestC['Rand Avg'] = np.mean(mBestC['Rand'])
 
@@ -58,9 +66,9 @@ def best_transform_metrics(m):
 
 		mBestC['Ahead Ratio'] = np.mean(mBestC['Rand'] == m['Rand Max'])
 
-		for t in TRANSFORMS:
+		for t in transforms:
 			mBestC[t] = {}
-			idx_t = mBestC['Arg'] == TRANSFORMS.index(t)
+			idx_t = mBestC['Arg'] == transforms.index(t)
 			mBestC[t]['Rand Avg'] = np.mean(mBestC['Rand'][idx_t])
 			regret_t = regret[idx_t]
 			mBestC[t]['Regret Avg'] = np.mean(regret_t)
@@ -83,8 +91,11 @@ def bias(m, eps = np.finfo(float).eps):
 		return np.log(pred / (true + eps))
 
 	m['Bias'] = {}
-	m['Bias']['C_graph'] = {'abs': abs_bias(m['C_true'], m['C_graph']), 'rel': rel_bias(m['C_true'], m['C_graph']), 'log': log_bias(m['C_true'], m['C_graph'])}
-	m['Bias']['C_embed'] = {'abs': abs_bias(m['C_true'], m['C_embed']), 'rel': rel_bias(m['C_true'], m['C_embed']), 'log': log_bias(m['C_true'], m['C_embed'])}
+	for C in CHERNOFFS_ID[1:]:
+		m['Bias'][C] = {}
+		m['Bias'][C]['abs'] = abs_bias(m['C_true'], m[C])
+		m['Bias'][C]['rel'] = rel_bias(m['C_true'], m[C])
+		m['Bias'][C]['log'] = log_bias(m['C_true'], m[C])
 
 	return m
 
@@ -112,46 +123,49 @@ def partial_correlation(true, pred, num_ticks = 100):
 
 def correlation(m):
 	m['Correlation'] = {}
-	m['Correlation']['Rand']  = {metric: partial_correlation(m['Rand'], m[metric]) for metric in ['C_true', 'C_graph', 'C_embed']}
-	m['Correlation']['C_true'] = {metric: partial_correlation(m['C_true'], m[metric]) for metric in ['C_graph', 'C_embed']}
+
+	m['Correlation']['Rand']  = {metric: partial_correlation(m['Rand'], m[metric]) 
+							  for metric in CHERNOFFS_ID}
+	m['Correlation']['C_true'] = {metric: partial_correlation(m['C_true'], m[metric]) 
+							   for metric in CHERNOFFS_ID[1:]}
 
 	return m
 
-def aggregate_metrics(metrics):
-	for (rho, pi, m), t in product(RHOS_PIS_MODELS, TRANSFORMS):
+def aggregate_metrics(metrics, transforms = TRANSFORMS_EXT.copy()):
+	for (rho, pi, m), t in product(RHOS_PIS_MODELS, transforms):
 		metrics[f'rho:{rho}']	= {}
 		metrics[f'pi:{pi}']  	= {}
 		metrics[m]   			= {}
 		metrics[t]   			= {}
 
-	for m, t in product(MODELS, TRANSFORMS):
+	for m, t in product(MODELS, transforms):
 		metrics[m][t] = {}
 			
 	for m_id in METRICS_ID:
 		metrics[m_id] = np.concatenate([metrics[rpm][t][m_id].ravel() 
-										for rpm, t in product(RHOS_PIS_MODELS, TRANSFORMS)])
+										for rpm, t in product(RHOS_PIS_MODELS, transforms)])
 		
 		for rpm in RHOS_PIS_MODELS:
 			metrics[rpm][m_id] = np.concatenate([metrics[rpm][t][m_id].ravel() 
-												 for t in TRANSFORMS])
+												 for t in transforms])
 			
 		for rho in RHOS:
 			metrics[f'rho:{rho}'][m_id] = np.concatenate([metrics[(rho, pi, m)][t][m_id].ravel() 
-												 for pi, m, t in product(PIS, MODELS, TRANSFORMS)])
+												 for pi, m, t in product(PIS, MODELS, transforms)])
 			
 		for pi in PIS:
 			metrics[f'pi:{pi}'][m_id] = np.concatenate([metrics[(rho, pi, m)][t][m_id].ravel()
-												 for rho, m, t in product(RHOS, MODELS, TRANSFORMS)])
+												 for rho, m, t in product(RHOS, MODELS, transforms)])
 			
 		for model in MODELS:
 			metrics[model][m_id] = np.concatenate([metrics[(rho, pi, model)][t][m_id].ravel() 
-												   for rho, pi, t in product(RHOS, PIS, TRANSFORMS)])
+												   for rho, pi, t in product(RHOS, PIS, transforms)])
 			
-			for t in TRANSFORMS:
+			for t in transforms:
 				metrics[model][t][m_id] = np.concatenate([metrics[(rho, pi, model)][t][m_id].ravel() 
 														   for rho, pi in product(RHOS, PIS)])
 		
-		for t in TRANSFORMS:
+		for t in transforms:
 			metrics[t][m_id] = np.concatenate([metrics[rpm][t][m_id].ravel() 
 											   for rpm in RHOS_PIS_MODELS])
 			

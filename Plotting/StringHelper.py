@@ -42,11 +42,14 @@ def sup(text):
 def sub(text):
     return text.translate(SUB)
 
+def float_to_str(x):
+	return f"{int(round(x * 100)):03d}"
+
 def model_str(n, rho, pi, model = None, transformation = None):
 	if model is None and transformation is None:
 		s_model = ""
 	else:
 		s_model = f"Model: {model.__name__}, Transformation: {transformation.name}\n"
 	s = (f"{s_model}"
-		 f"n = {n}, ρ = {rho}, Π = {pi_init(pi).tolist()}\n")
+		 f"n = {n}, ρ = {rho}, Π = {np.diag(pi_init(pi)).tolist()}\n")
 	return s

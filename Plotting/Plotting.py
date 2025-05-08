@@ -16,7 +16,7 @@ import matplotlib as mpl
 
 from Objects.WSBM import *
 from .StringHelper import *
-from Computation.ExtraMetrics import partial_correlation
+from Computation.ExtraMetrics import partial_correlation, sigmoid_gmm_score
 
 n = 1000
 K = 2
@@ -35,7 +35,8 @@ class Plotter:
 		if eps: plt.savefig(out_path + f'/{file_name}.eps'.replace(' ', '_'), dpi=dpi)
 		if close: plt.close()
 
-	def plot_embedding(self, rho, pi, metrics, n = n, subfolder = ''):
+	def plot_embedding(self, rho, pi, metrics, n = n, subfolder = '', 
+					mode = 'Truth', ellipse = True, q_outliers = 0):
 		def label_permutation(Z_true, Z_pred):
 			matches_no_swap = np.sum(Z_true == Z_pred)
 			matches_swap = np.sum(Z_true == (1 - Z_pred))
@@ -44,48 +45,76 @@ class Plotter:
 		
 		def switch(mode):
 			n_rows, n_cols = len(metrics), len(list(metrics.values())[0].values())
-			fig, axes = plt.subplots(n_rows, n_cols, figsize=(2 + 2.5*n_cols, 2 + 3*n_rows))
+			fig, axes = plt.subplots(n_rows, n_cols, figsize=(2 + 3*n_cols, 2 + 3*n_rows))
 			mode_str = "True community labels" if mode == 'Truth' else "Predicted community labels"
-			global_title = mode_str + '\n' + model_str(n, rho, pi)
+			global_title = mode_str + '\n' + model_str(n, rho, pi) + '\n'
 			fig.suptitle(global_title, fontsize=20)
 			for i, (model, model_metrics) in enumerate(metrics.items()):
 				axes[i, 0].set_ylabel(model.name + "\n")
 				for j, G in enumerate(model_metrics.values()):
 					Z, X, Z_hat, M, Σ, C_true, C_graph, C_embedding, RAND = G.Z, G.X, G.Z_hat, G.M, G.Σ, G.C_true, G.C_graph, G.C_embedding, G.RAND
+					adjusted_GMM_score = sigmoid_gmm_score()(G.GMM_score)
 					Z_hat = label_permutation(Z, Z_hat)
 					ax = axes[i][j]
 					plt.sca(ax)
-					if mode == 'Truth':
-						ax.scatter(X[:, 0], X[:, 1], c=Z, cmap='bwr', marker='.', alpha=0.2)
-					else:
-						ax.scatter(X[:, 0], X[:, 1], c=Z_hat, cmap='PuOr', marker='.', alpha=0.2)
+
+					distances = np.linalg.norm(X - X.mean(axis=0), axis=1)
+					idx_outliers = np.argsort(distances)[-int(len(X) * q_outliers):] if q_outliers > 0 else []
+					mask = np.ones(len(X), dtype=bool)
+					mask[idx_outliers] = False
+					X, Z, Z_hat = X[mask], Z[mask], Z_hat[mask]
+
+					t = np.clip(RAND, 0, 1)**2
+					u = np.clip(adjusted_GMM_score, 0, 1)
+					base = np.array([1 - t, 1, 1 - t])
+					grey = np.array([0.5, 0.5, 0.5])
+					facecolor = u * base + (1 - u) * grey
+
+					ax.scatter(X[:, 0],
+								X[:, 1],
+								c=Z if mode=='Truth' else Z_hat,
+								cmap='bwr' if mode=='Truth' else ListedColormap(["deepskyblue","hotpink"]),
+								marker='.',
+								alpha=0.2 + (1 - u) * 0.4)
+					
 					ax.set_xticks([])
 					ax.set_yticks([])
-					for mean, cov in zip(M, Σ):
-						eigenvalues, eigenvectors = np.linalg.eigh(cov)
-						angle = np.degrees(np.arctan2(eigenvectors[0, 1], eigenvectors[0, 0]))
-						width, height = 2 * np.sqrt(6 * eigenvalues)
-						ellip = plt.matplotlib.patches.Ellipse(
-							mean, width, height, angle=angle, edgecolor='k', facecolor='none', linestyle='solid'
-						)
-						ax.add_patch(ellip)
-					transform_name = G.transform_name + "\n" if i == 0 else ""
-					title = (
-						transform_name
-						+ f"RI: {RAND:.2f} "
-						+ f"CT: {C_true:.5f}\n"
-						+ f"CG: {C_graph:.5f} "
-						+ f"CE: {C_embedding:.5f}"
-					)
-					ax.set_title(title)
-			plt.tight_layout()
-			self.save_file(f'Embeddings/{subfolder}', f'{rho}_{pi}', dpi=400)
 
-		switch('Truth')
-		#switch('Prediction')
+					ax.set_facecolor(facecolor)
+					if ellipse:
+						for mean, cov in zip(M, Σ):
+							eigenvalues, eigenvectors = np.linalg.eigh(cov)
+							angle = np.degrees(np.arctan2(eigenvectors[0, 1], eigenvectors[0, 0]))
+							width, height = 2 * np.sqrt(6 * eigenvalues)
+							ellip = plt.matplotlib.patches.Ellipse(
+								mean, width, height, angle=angle, edgecolor='k', facecolor='none', linestyle='solid'
+							)
+							ax.add_patch(ellip)
+					Π_hat = list(np.sort(np.diag(G.Π_hat)).round(2))
+					stats = [f"RI:  {RAND:.2f}",
+			  				 f"ΠẐ: {Π_hat}",
+							 f"GS:  {G.GMM_score:.2f} ({adjusted_GMM_score:.2f})",
+			  				 f"CT:  {C_true:.5f}",
+							 f"CG: {C_graph:.5f}",
+							 f"CE: {C_embedding:.5f}"]
+					for stat in stats:
+						ax.plot([], [], ' ', label=stat, linestyle = None, marker = "")
+					ax.legend(
+						loc="upper left",
+						fontsize=8,
+						handlelength=0,
+						handletextpad=0,
+					)
+					if i == 0:
+						ax.set_title(G.transform_name + "\n", fontsize=12)
+			plt.tight_layout()
+			rho_str, pi_str = float_to_str(rho), float_to_str(pi)
+			self.save_file(f'Embeddings/{subfolder}', f'{rho_str}_{pi_str}', dpi=400)
+
+		switch(mode)
 
 	def plot_scatter_Rand_vs_Chernoff(self, metrics, n_points_ratio_displayed=1.0,
-									C_transform = 'Sigmoid-Ln', n=n, K=K):
+									C_transform = 'Sigmoid-Ln', n=n, K=K, transforms = TRANSFORMS.copy()):
 
 		if C_transform == 'Sigmoid-Ln':
 			λ, b = 1, -7
@@ -103,7 +132,7 @@ class Plotter:
 		#if n_points_ratio_displayed < 1.0:
 		#	n_points_ratio_displayed_str = f" ({n_points_ratio_displayed * 100:.0f}% du total)"
 
-		fig, axes = plt.subplots(4, 3, figsize=(18, 24))
+		fig, axes = plt.subplots(4, len(CHERNOFFS_ID), figsize=(6 * len(CHERNOFFS_ID), 24))
 		global_title = (f"Rand vs Chernoff information scatter plots\n"
 						f"For WSBM graphs of size n = {n}, with K = {K} communities\n\n\n")
 		fig.suptitle(global_title, fontsize=20)
@@ -200,9 +229,9 @@ class Plotter:
 				return f'\nln({m_id_str})'
 
 		for i, (ax, m_id) in enumerate(zip(axes[3], CHERNOFFS_ID)):
-			for t in TRANSFORMS:
+			for t in transforms:
 				x, y, corr, auc_corr, max_corr = get_xysc(t, m_id)
-				label_str = (f'{t.name}: '
+				label_str = (f'{t.id}: '
 							f'S-corr = {corr:.2f}')#\n'
 							#f'auc-c = {auc_corr:.2f}, '
 							#f'max-c = {max_corr:.2f}')
@@ -224,7 +253,7 @@ class Plotter:
 		else:
 			vmin = vmax = None
 		
-		fig, axes = plt.subplots(2, 2, figsize=(11.5, 10))
+		fig, axes = plt.subplots(2, len(METRICS_ID) // 2, figsize=(5 * len(METRICS_ID) // 2 + 1.5, 10))
 		axes = axes.flatten()
 
 		suptitle = f"Metrics heatmaps\n" + model_str(n, rho, pi, model, transformation)
@@ -280,9 +309,9 @@ class Plotter:
 			ax.set_xticklabels(np.linspace(0, 1, 5).round(2))
 			ax.set_yticks(np.linspace(0, N, 5))
 			ax.set_yticklabels(np.linspace(0, 1, 5).round(2))
-			if i == 2 or i == 3:
+			if i == len(METRICS_ID) - 1 or i == len(METRICS_ID) - 1:
 				ax.set_xlabel(f'{model.param_name}{sub("12")}', fontsize = 12)
-			if i == 0 or i == 2:
+			if i % 2 == 0:
 				ax.set_ylabel(f'{model.param_name}{sub("11")}', fontsize = 12)
 			ax.invert_yaxis()
 			for spine in ax.spines.values():
@@ -290,18 +319,19 @@ class Plotter:
 				spine.set_linewidth(1)
 		
 		plt.tight_layout()
-		m_str = f'{model.name}_{rho}_{pi}'.replace('.', '')
+		rho_str, pi_str = float_to_str(rho), float_to_str(pi)
+		m_str = f'{model.name}_{rho_str}_{pi_str}'.replace('.', '')
 		self.save_file(f'Heatmaps_by_MT/Metrics/By_Model/{m_str}', f'{transformation.id}', dpi=400, close=False)
 		self.save_file(f'Heatmaps_by_MT/Metrics/By_Transform/{transformation.id}', m_str, dpi=400)
 
 	def plot_bias_heatmap(self, rho, pi, model, transformation, metrics, log = True, n = n):
-		fig, axes = plt.subplots(4, 2, figsize=(12, 20))
+		fig, axes = plt.subplots(4, len(CHERNOFFS_ID[1:]), figsize=(6*len(CHERNOFFS_ID[1:]), 20))
 
 		suptitle = (f"Bias of Chernoff information estimators vs true Chernoff information\n"
 					f"{model_str(n, rho, pi, model, transformation)}")
 		fig.suptitle(suptitle, fontsize=14)
 
-		for ax, m_id in zip(axes[0], METRICS_ID[2:]):
+		for ax, m_id in zip(axes[0], CHERNOFFS_ID[1:]):
 			corr, auc_corr, partial_corrs = metrics['Correlation']['C_true'][m_id]
 			ns, corrs = partial_corrs
 			min_corrs, max_corrs = np.min(corrs), np.max(corrs)
@@ -370,15 +400,16 @@ class Plotter:
 					spine.set_linewidth(1)
 
 		plt.tight_layout()
-		m_str = f'{model.name}_{rho}_{pi}'.replace('.', '')
+		rho_str, pi_str = float_to_str(rho), float_to_str(pi)
+		m_str = f'{model.name}_{rho_str}_{pi_str}'.replace('.', '')
 		self.save_file(f'Heatmaps_by_MT/Bias/By_Model/{m_str}', f'{transformation.id}', dpi=400, close=False)
 		self.save_file(f'Heatmaps_by_MT/Bias/By_Transform/{transformation.id}', m_str, dpi=400)
 
-	def plot_best_transform_heatmaps(self, rho, pi, model, metrics, n=n):
+	def plot_best_transform_heatmaps(self, rho, pi, model, metrics, n=n, transforms = TRANSFORMS.copy()):
 		chernoffs = CHERNOFFS_ID.copy()
 		cols = ['Arg', 'Rand', 'Regret']
 
-		fig, axes = plt.subplots(3, 3, figsize=(16, 16), gridspec_kw={'width_ratios': [0.8, 1, 1]})
+		fig, axes = plt.subplots(len(chernoffs), 3, figsize=(16, 5*len(chernoffs)+1), gridspec_kw={'width_ratios': [0.8, 1, 1]})
 		fig.suptitle(
 			f"Best‑Transform Metrics on Model: {model.name}\n" + model_str(n, rho, pi),
 			fontsize=14
@@ -394,8 +425,8 @@ class Plotter:
 					cmap = ListedColormap(list(TRANSFORMS_CMAP.values()))
 					norm = BoundaryNorm(np.arange(-0.5, cmap.N + 0.5, 1), cmap.N)
 					ax.pcolormesh(grid, cmap = cmap, norm = norm, shading='auto')
-					area_map = dict(zip(TRANSFORMS, metrics[f'{C}-Best Transform']['Transform Area']))
-					sorted_TRANSFORMS = sorted(TRANSFORMS, key=lambda t: area_map[t], reverse=True)
+					area_map = dict(zip(transforms, metrics[f'{C}-Best Transform']['Transform Area']))
+					sorted_TRANSFORMS = sorted(transforms, key=lambda t: area_map[t], reverse=True)
 					handles = [Patch(facecolor=TRANSFORMS_CMAP[t], label=f'{t.id}: {area_map[t]:.2f}') 
 							for t in sorted_TRANSFORMS]
 					ax.legend(title = 'Transforms: Area',
@@ -404,11 +435,11 @@ class Plotter:
 					norm = colors.Normalize(vmin=0, vmax=1, clip=True)
 					sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Reds')
 
-					mean_rand_transforms_map = {t: np.mean(metrics[t]['Rand']) for t in TRANSFORMS}
+					mean_rand_transforms_map = {t: np.mean(metrics[t]['Rand']) for t in transforms}
 					mean_rand_transforms_map[C] = metrics[f'{C}-Best Transform']['Rand Avg']
-					case = lambda t : t.id if t in TRANSFORMS else t
-					sorted_TRANSFORMS = sorted(TRANSFORMS + [C], key=lambda t: mean_rand_transforms_map[t], reverse=True)
-					handles = [Patch(facecolor=CMAP[t], label=f'{case(t)}: {mean_rand_transforms_map[t]:.2f}') 
+					case = lambda t : t.id if t in transforms else t
+					sorted_TRANSFORMS = sorted(transforms + [C], key=lambda t: mean_rand_transforms_map[t], reverse=True)
+					handles = [Patch(facecolor=CMAP[t], label=f"{case(t).replace('_', ' ')}: {mean_rand_transforms_map[t]:.2f}") 
 							for t in sorted_TRANSFORMS]
 					ax.legend(title = 'Transforms: Avg(Rand)}', handles=handles, loc="upper left", handlelength=1, handleheight=1)
 
@@ -436,7 +467,7 @@ class Plotter:
 				if col != 'Arg':
 					ax.invert_yaxis()
 
-				if i == 1:
+				if i == len(chernoffs) - 1:
 					ax.set_xlabel(f"{model.param_name}{sub('12')}", fontsize=12)
 				if j == 0:
 					ax.set_ylabel(f"{model.param_name}{sub('11')}", fontsize=12)
@@ -446,7 +477,8 @@ class Plotter:
 					spine.set_linewidth(1)
 
 		plt.tight_layout()
-		self.save_file(f'Best_Transform/{model.name}', f'{model.name}_{rho}_{pi}', dpi=400)
+		rho_str, pi_str = float_to_str(rho), float_to_str(pi)
+		self.save_file(f'Best_Transform/{model.name}', f'{model.name}_{pi_str}_{rho_str}', dpi=400)
 
 	def modulable_bar_plots(self, ax, L, fontsize=10):
 		x_offset = 0
@@ -469,11 +501,9 @@ class Plotter:
 
 		return x_offset + space_0
 	
-	def plot_transforms_rand(self, model, metrics_g, mode = 'No regret'):
+	def plot_transforms_rand(self, model, metrics_g, mode = 'No regret', 
+						  transforms = TRANSFORMS.copy(), chernoffs = CHERNOFFS_ID.copy(), name = 'Transforms'):
 		_, ax = plt.subplots(figsize=(8, 6))
-
-		chernoffs = CHERNOFFS_ID.copy()
-		transforms = TRANSFORMS.copy()
 
 		transforms_with_argmax_C = transforms + [f"{chernoff}-Best Transform" for chernoff in chernoffs]
 		transforms_with_argmax_C.sort(key=lambda t: metrics_g[t]['Rand Avg'], reverse=True)
@@ -491,7 +521,7 @@ class Plotter:
 				m['Rand Avg'], 
 				#m['Regret Avg'],
 				0,
-				f"{m['Rand Avg']:.2f}",
+				f"{m['Rand Avg']:.2f}" if m['Rand Avg'] > 0.1 else "",
 				#f"{m['Regret Avg']:.2f}",
 				"",
 				color_helper(t), 
@@ -540,7 +570,7 @@ class Plotter:
 		ax.set_xlim(-0.25, x_offset+0.25)
 		
 		if mode == 'No regret':
-			ax.set_title(f'Transformations Average Rand (over {len(RHOS_PIS_MODELS)} graph models)\n')
+			ax.set_title(f'Transformations Average Rand & Regret (on {model.name} Model)\n')
 			Avg_Rand_Max = np.mean(metrics_g['Rand Max'])
 			ax.hlines(Avg_Rand_Max, 0, 
 					x_offset, color='black', lw=1, label=f'Avg(Rand Max): {Avg_Rand_Max:.2f}', linestyle='--')
@@ -564,17 +594,18 @@ class Plotter:
 
 		mode = 'No_Regret' if mode == 'No regret' else 'With_Regret'
 		plt.tight_layout()
-		self.save_file(f'Best_Transform/{model.name}', f'Transforms_Rands_{mode}', dpi=400)
+		self.save_file(f'Best_Transform/{model.name}', f'{name}_Rands_{mode}', dpi=400)
 
-	def plot_transforms_rand_for_best_transform(self, model, metrics_g, chernoff):
+	def plot_transforms_rand_for_best_transform(self, model, metrics_g, chernoff, transforms = TRANSFORMS.copy()):
 		_, ax = plt.subplots(figsize=(8, 6))
 
 		m_chernoff = metrics_g[f"{chernoff}-Best Transform"]
 
-		def t_area(t):
-			return m_chernoff['Transform Area'][TRANSFORMS.index(t)]
+		transforms_fixed = transforms.copy()
 
-		transforms = TRANSFORMS.copy()
+		def t_area(t):
+			return m_chernoff['Transform Area'][transforms_fixed.index(t)]
+		
 		transforms.sort(key=lambda t: t_area(t), reverse=True)
 		transforms = [t for t in transforms if t_area(t) > 0.01]
 
@@ -710,7 +741,7 @@ class Plotter:
 			varying_param = p12
 		p22 = model.p22_fixed if p22 == 'fixed' else p11
 
-		fig, axes = plt.subplots(3, 1, figsize=(10, 15))
+		fig, axes = plt.subplots(len(chernoffs), 1, figsize=(10, 5*len(chernoffs)))
 		suptitle_str = f"Best Transform Metrics on Model: {model.instance_name_str(param_init(p11, p12, p22))}\n{model_str(n, rho, pi)}"
 		fig.suptitle(suptitle_str, fontsize=14)
 		
@@ -729,7 +760,7 @@ class Plotter:
 			
 			
 		axes[0].set_title(f"Chernoffs", fontsize=12)
-		axes[2].set_xlabel(sub(varying_param), fontsize=14)
+		axes[len(chernoffs)-1].set_xlabel(sub(varying_param), fontsize=14)
 			
 		plt.tight_layout()
 		plt.gcf().set_dpi(400)

@@ -21,7 +21,7 @@ class TWSBMInstance:
 		self.transform_name = None
 		self.A, self.Z = None, None
 		self.X = None
-		self.Z_hat, self.M, self.Σ = None, None, None
+		self.Z_hat, self.Π_hat, self.M, self.Σ, self.GMM_score = None, None, None, None, None
 		self.C_true, self.C_graph, self.C_embedding = None, None, None
 		self.RAND = None
 
@@ -41,14 +41,14 @@ class TWSBMInstance:
 		self.transform_name = transformation.name
 
 		self.X = self.__spectral_embedding(self.A, mode = emb_mode)
-		self.Z_hat, self.M, self.Σ = self.__fit_GMM(self.X)
+		self.Z_hat, self.M, self.Σ, self.GMM_score = self.__fit_GMM(self.X)
 
 		if self.model is not None:
 			B, C = self.model.theoretical_B_C(self.transformation)
 			self.C_true = self.__chernoff_information_graph(B, C, self.model.Π)
 
-		B_hat, C_hat, Π_hat = self.__empirical_B_C(self.A, self.Z_hat, B.shape[0])
-		self.C_graph = self.__chernoff_information_graph(B_hat, C_hat, Π_hat)
+		B_hat, C_hat, self.Π_hat = self.__empirical_B_C(self.A, self.Z_hat, B.shape[0])
+		self.C_graph = self.__chernoff_information_graph(B_hat, C_hat, self.Π_hat)
 
 		self.C_embedding = self.__chernoff_information_embedding(self.M, self.Σ, len(self.Z_hat))
 
@@ -72,6 +72,11 @@ class TWSBMInstance:
 
 	def __spectral_embedding(self, A, mode, d=2):
 		vals, vecs = eigsh(A.astype(np.float32), k=d, which='LM')
+
+		j = np.argmax(np.abs(vecs), axis=0)
+		signs = np.sign(vecs[j, np.arange(vecs.shape[1])])
+		vecs *= signs[None, :]
+
 		if mode == 'sqrt-scaled':
 			return vecs * np.sqrt(np.abs(vals))
 		elif mode == 'scaled':
@@ -81,9 +86,15 @@ class TWSBMInstance:
 		else:
 			raise ValueError(f"Unknown embedding mode: {mode}")
 
-	def __fit_GMM(self, X):
-		gmm = GaussianMixture(n_components=2, covariance_type='full', random_state=42).fit(X)
-		return gmm.predict(X), gmm.means_, gmm.covariances_
+	def __fit_GMM(self, X, q_outliers = 0.01):
+		distances = np.linalg.norm(X - X.mean(axis=0), axis=1)
+		idx_outliers = np.argsort(distances)[-int(len(X) * q_outliers):] if q_outliers > 0 else []
+		mask = np.ones(len(X), dtype=bool)
+		mask[idx_outliers] = False
+		X_wo_outliers = X[mask]
+
+		gmm = GaussianMixture(n_components=2, covariance_type='full', random_state=42).fit(X_wo_outliers)
+		return gmm.predict(X), gmm.means_, gmm.covariances_, gmm.score(X)
 	
 	def __chernoff_information_graph(self, B, C, Π):	
 		K = B.shape[0]

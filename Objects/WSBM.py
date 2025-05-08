@@ -172,7 +172,7 @@ class lognormWSBM(WSBM):
 		else:
 			return f'Lognorm-WSBM: μ = {μ:.2f}\nσ{sub("11")} = σ{sub("22")} = {Σ[0, 0]}, σ{sub("12")} = {Σ[0, 1]}'
 
-	def __init__(self, ρ, Π, Σ, n = n, p22 = 'fixed'):
+	def __init__(self, ρ, Π, Σ, n = n, p22 = 'fixed', tail_control = None):
 		# n: number of nodes
 		# ρ: probability of observing a link
 		# Π: probabilities for community membership
@@ -182,6 +182,7 @@ class lognormWSBM(WSBM):
 		self.ρ = ρ
 		self.Π = pi_init(Π)
 		self.K = self.Π.shape[0]
+		self.tail_control = tail_control
 
 		σ11, σ12 = Σ
 		if p22 == 'fixed':
@@ -207,10 +208,11 @@ class lognormWSBM(WSBM):
 		scale = lognormWSBM.ExpMu[Z_i, Z_j][drawn_edges_idx]
 		
 		edges = lognorm.rvs(s=s, scale=scale, size=s.shape)
-		above_1 = edges > 1
-		while np.any(above_1):
-			edges[above_1] = lognorm.rvs(s[above_1], scale=scale[above_1], size=above_1.sum())
-			above_1 = edges > 1
+		if self.tail_control is not None:
+			above_t = edges > self.tail_control
+			while np.any(above_t):
+				edges[above_t] = lognorm.rvs(s[above_t], scale=scale[above_t], size=above_t.sum())
+				above_t = edges > self.tail_control
 
 		A[drawn_edges_idx] = edges
 
@@ -226,13 +228,17 @@ class lognormWSBM(WSBM):
 		E1 = np.exp(Mu + Σ ** 2 / 2)
 		E2 = np.exp(2 * Mu + 2 * Σ ** 2)
 
-		α  = (np.log(1) - Mu) / Σ
-		t0 = norm.cdf(α)
-		t1 = norm.cdf(α - Σ) / t0
-		t2 = norm.cdf(α - 2*Σ) / t0
+		if self.tail_control is not None:
+			α  = (np.log(self.tail_control) - Mu) / Σ
+			t0 = norm.cdf(α)
+			t1 = norm.cdf(α - Σ) / t0
+			t2 = norm.cdf(α - 2*Σ) / t0
 
-		E1 = E1 * t1
-		E2 = E2 * t2
+			E1 = E1 * t1
+			E2 = E2 * t2
+		else:
+			α = 1.0
+			t0 = 1.0
 
 		if T is None or isinstance(T, IdentityTransform):
 			B = ρ * E1
@@ -243,7 +249,7 @@ class lognormWSBM(WSBM):
 			C = ρ * (1 - 2*E1 + E2) - B**2
 			return B, C
 		elif isinstance(T, LogTransform):
-			λ = norm.pdf(α) / t0
+			λ = norm.pdf(α) / t0 if self.tail_control is not None else 0
 			F1 = Mu - Σ * λ
 			F2 = Σ ** 2 * (1 - α*λ - λ**2)
 
@@ -289,8 +295,8 @@ class lognormWSBM(WSBM):
 			γ = T.γ
 			γM = γ * Mu
 			γΣ = γ * Σ
-			γt1 = norm.cdf(α - γ*Σ) / t0
-			γt2 = norm.cdf(α - 2*γ*Σ) / t0
+			γt1 = norm.cdf(α - γ*Σ) / t0 if self.tail_control is not None else 1.0
+			γt2 = norm.cdf(α - 2*γ*Σ) / t0 if self.tail_control is not None else 1.0
 			γE1 = np.exp(γM + γΣ ** 2 / 2) * γt1
 			γE2 = np.exp(2 * γM + 2 * γΣ ** 2) * γt2
 
@@ -303,47 +309,42 @@ class lognormWSBM(WSBM):
 
 # Constants II:
 
-RHOS = [0.25, 0.5]
-PIS = [0.1, 0.5]
+RHOS = [0.1, 0.25, 0.5]
+PIS = [0.1, 0.25, 0.5]
 ALPHAS = [(0.1, 1.0), (0.5, 0.5)]
 SIGMAS = [(1, 0.5), (0.1, 0.5)]
 MODELS = [betaWSBM, lognormWSBM]
 MODELS_AND_PARAMS = list(product([betaWSBM], ALPHAS)) + list(product([lognormWSBM], SIGMAS))
-"""
-TRANSFORMS = [IdentityTransform(), 
-			  OppositeTransform(), 
-			  LogTransform(), 
-			  ThresholdTransform(),
-			  RankTransform(),
-			  QuantileTransform()]
-			  """
-TRANSFORMS = [IdentityTransform(),
-			  PowerTransform(γ=2),
-			  LogTransform(),
-			  QuantileTransform(q=0.05),
-			  QuantileTransform(q=0.25),
-			  RankTransform()]
-TRANSFORMS_QTL = [QuantileTransform(q=0.01), QuantileTransform(q=0.05), QuantileTransform(q=0.1), QuantileTransform(q=0.25), QuantileTransform(q=0.5)]
-TRANSFORMS_POW = [PowerTransform(γ=0.25), PowerTransform(γ=0.5), PowerTransform(γ=1), PowerTransform(γ=2.0), PowerTransform(γ=3.0)]
+
+TRANSFORMS_MIN  = [OppositeTransform(), LogTransform(), RankTransform()]
+TRANSFORMS_QTL  = [QuantileTransform(q) for q in [0.01, 0.05, 0.1, 0.25, 0.5]]
+TRANSFORMS_POW  = [PowerTransform(γ) for γ in [(np.sqrt(2) ** i).round(2) for i in [-2, -1, 0, 1, 2]]]
+TRANSFORMS      = TRANSFORMS_POW[1:3] + TRANSFORMS_QTL[2:4] + TRANSFORMS_MIN
+TRANSFORMS_EXT  = TRANSFORMS_POW + TRANSFORMS_QTL + TRANSFORMS_MIN
 RHOS_PIS_MODELS = list(product(RHOS, PIS, MODELS))
 
 TRANSFORMS_ID = [t.id for t in TRANSFORMS]
 TRANSFORMS_MAP = {t.id : t for t in TRANSFORMS}
-METRICS_ID = ['Rand', 'C_true', 'C_graph', 'C_embed']
-METRICS_NAME = ["Rand index", "True Chernoff information", "Chernoff graph-estimation", "Chernoff embedding-estimation"]
+METRICS_ID = ['Rand', 'C_true', 'C_graph', 'C_embed', 'aC_graph', 'aC_embed']
+METRICS_NAME = ["Rand index", 
+				"True Chernoff information", 
+				"Chernoff graph-estimation", 
+				"Chernoff embedding-estimation",
+				"Adjusted Chernoff graph-estimation",
+				"Adjusted Chernoff embedding-estimation"]
 METRICS_MAP = dict(zip(METRICS_ID, METRICS_NAME))
 
-CHERNOFFS_ID = ['C_true', 'C_graph', 'C_embed']
-CHERNOFFS_ID_COSMETIC_MAP = dict(zip(CHERNOFFS_ID, [f'C{sup("true")}', f'C{sup("graph")}', f'C{sup("embed")}']))
-CHERNOFFS_CMAP = dict(zip(CHERNOFFS_ID, ['yellow', 'cyan', 'magenta']))
+CHERNOFFS_ID = ['C_true', 'C_graph', 'C_embed', 'aC_graph', 'aC_embed']
+CHERNOFFS_ID_COSMETIC_MAP = dict(zip(CHERNOFFS_ID, 
+									 [f'C{sup("true")}', f'C{sup("graph")}', f'C{sup("embed")}', f'aC{sup("graph")}', f'aC{sup("embed")}']))
+CHERNOFFS_CMAP = dict(zip(CHERNOFFS_ID, ['yellow', 'cyan', 'magenta', 'teal', 'mediumvioletred']))
 
 
 BIASES = ['abs', 'rel', 'log']
 BIASES_NAME = ['Absolute bias', 'Relative bias', 'Log-ratio bias']
 BIASES_MAP = dict(zip(BIASES, BIASES_NAME))
 
-TRANSFORMS_CMAP = dict(zip(TRANSFORMS, ['blue', 'orange', 'green', 'red', 'pink', 'purple']))
-RHOS_PIS_MODELS_CMAP = dict(zip(RHOS_PIS_MODELS, sns.color_palette("tab10", len(RHOS_PIS_MODELS))))
+TRANSFORMS_CMAP = {t.color : t.id for t in TRANSFORMS_EXT}
 
 CMAP = CHERNOFFS_CMAP | TRANSFORMS_CMAP
 

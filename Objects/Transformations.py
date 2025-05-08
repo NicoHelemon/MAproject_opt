@@ -2,6 +2,14 @@ import numpy as np
 
 from abc import ABC, abstractmethod
 from scipy.stats import rankdata
+from matplotlib import colors
+
+cmap_blue = colors.LinearSegmentedColormap.from_list("blue", ["#00FFFF", "#0050FF"])
+norm_pow_γ = colors.Normalize(vmin=0.5, vmax=2.0)
+
+cmap_pink_red = colors.LinearSegmentedColormap.from_list("pink_red", ["#FFB2C6", "#FF0000"])
+norm_qtl_q = colors.Normalize(vmin=0.01, vmax=0.5)
+
 
 # Abstract class for weight transformations
 class WeightTransform(ABC):
@@ -15,6 +23,7 @@ class IdentityTransform(WeightTransform):
 	def __init__(self):
 		self.name = "Identity"
 		self.id = 'Id'
+		self.color = cmap_blue(norm_pow_γ(1))
 
 	def __call__(self, A):
 		tA = A.copy()
@@ -25,9 +34,10 @@ class OppositeTransform(WeightTransform):
 	def __init__(self):
 		self.name = "Opposite"
 		self.id = 'Opp'
+		self.color = 'orange'
 
 	def __call__(self, A):
-		tA = np.clip(A, 0, 1)
+		tA = np.clip(A, 0, None)
 		tA[tA > 0] = 1 - tA[tA > 0]
 		return tA
 
@@ -36,9 +46,10 @@ class LogTransform(WeightTransform):
 	def __init__(self):
 		self.name = "Logarithmic"
 		self.id = 'Log'
+		self.color = 'green'
 
 	def __call__(self, A):
-		tA = np.clip(A, 0, 1)
+		tA = np.clip(A, 0, None)
 		tA[tA > 0] = -np.log(tA[tA > 0])
 		return tA
 
@@ -48,6 +59,7 @@ class ThresholdTransform(WeightTransform):
 		self.name = f"Threshold (τ = {τ})"
 		self.id = f'Thr-{τ}'
 		self.τ = τ
+		self.color = 'black'
 
 	def __call__(self, A):
 		tA = A.copy()
@@ -58,6 +70,7 @@ class RankTransform(WeightTransform):
 	def __init__(self):
 		self.name = "Rank"
 		self.id = 'Rank'
+		self.color = 'purple'
 
 	def __call__(self, A):
 		iu = np.triu_indices_from(A, k=1)
@@ -76,6 +89,7 @@ class QuantileTransform(WeightTransform):
 		self.name = f"Quantile (q = {q})"
 		self.id = f'Q-{int(q*100):02d}'
 		self.q = q
+		self.color = cmap_pink_red(norm_qtl_q(q))
 
 	def __call__(self, A):
 		tA = A.copy()
@@ -84,10 +98,11 @@ class QuantileTransform(WeightTransform):
 		return tA
 	
 class PowerTransform(WeightTransform):
-	def __init__(self, γ = 2):
+	def __init__(self, γ = 1.41):
 		self.name = f"Power (γ = {γ})"
 		self.id = f'Pow-{γ}'
 		self.γ = γ
+		self.color = cmap_blue(norm_pow_γ(γ))
 
 	def __call__(self, A):
 		tA = A.copy()

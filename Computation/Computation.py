@@ -14,7 +14,8 @@ def simulate_in_grid(N, batch, rep, model, model_params, transformations,
 	
 	def simulate_one_grid_point(i, j, p11, p12, rho, pi, model, rep, transformations,
 							 emb_mode, p22, base_seed):
-		metrics = {f'{t.id}_{m_id}' : np.zeros(rep) for t in transformations for m_id in METRICS_ID}
+		metrics =  {f'{t.id}_{m_id}'   : np.zeros(rep) for t in transformations for m_id in METRICS_ID}
+		metrics |= {f'{t.id}_GMM_score': np.zeros(rep) for t in transformations}
 
 		m = model(rho, pi, (p11, p12), p22=p22)
 
@@ -23,10 +24,11 @@ def simulate_in_grid(N, batch, rep, model, model_params, transformations,
 			A, Z = m(seed=seed)
 			for t in transformations:
 				G = TWSBMInstance(model=m, transformation=t, A=t(A), Z=Z, emb_mode=emb_mode)
-				metrics[f'{t.id}_C_true'][k]  = G.C_true
-				metrics[f'{t.id}_C_graph'][k] = G.C_graph
-				metrics[f'{t.id}_C_embed'][k] = G.C_embedding
-				metrics[f'{t.id}_Rand'][k]   = G.RAND
+				metrics[f'{t.id}_C_true'][k]  	= G.C_true
+				metrics[f'{t.id}_C_graph'][k] 	= G.C_graph
+				metrics[f'{t.id}_C_embed'][k] 	= G.C_embedding
+				metrics[f'{t.id}_Rand'][k]    	= G.RAND
+				metrics[f'{t.id}_GMM_score'][k]	= G.GMM_score
 
 			seed += 1
 
