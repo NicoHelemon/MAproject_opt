@@ -28,6 +28,15 @@ class IdentityTransform(WeightTransform):
 	def __call__(self, A):
 		tA = A.copy()
 		return tA
+	
+	def __eq__(self, other):
+		return isinstance(other, IdentityTransform)
+
+	def __hash__(self):
+		return hash(IdentityTransform)
+
+	def __reduce__(self):
+		return (self.__class__, ())
 
 # Opposite transformation (1 - A)
 class OppositeTransform(WeightTransform):
@@ -40,6 +49,15 @@ class OppositeTransform(WeightTransform):
 		tA = np.clip(A, 0, None)
 		tA[tA > 0] = 1 - tA[tA > 0]
 		return tA
+	
+	def __eq__(self, other):
+		return isinstance(other, OppositeTransform)
+
+	def __hash__(self):
+		return hash(OppositeTransform)
+
+	def __reduce__(self):
+		return (self.__class__, ())
 
 # Logarithmic transformation (-log(A))
 class LogTransform(WeightTransform):
@@ -52,6 +70,15 @@ class LogTransform(WeightTransform):
 		tA = np.clip(A, 0, None)
 		tA[tA > 0] = -np.log(tA[tA > 0])
 		return tA
+	
+	def __eq__(self, other):
+		return isinstance(other, LogTransform)
+
+	def __hash__(self):
+		return hash(LogTransform)
+
+	def __reduce__(self):
+		return (self.__class__, ())
 
 # Threshold transformation (binary thresholding)
 class ThresholdTransform(WeightTransform):
@@ -65,6 +92,15 @@ class ThresholdTransform(WeightTransform):
 		tA = A.copy()
 		tA[tA > 0] = (tA[tA > 0] <= self.τ).astype(float)
 		return tA
+	
+	def __eq__(self, other):
+		return isinstance(other, ThresholdTransform) and self.τ == other.τ
+
+	def __hash__(self):
+		return hash((ThresholdTransform, self.τ))
+
+	def __reduce__(self):
+		return (self.__class__, (self.τ,))
 	
 class RankTransform(WeightTransform):
 	def __init__(self):
@@ -84,6 +120,15 @@ class RankTransform(WeightTransform):
 		
 		return tA
 	
+	def __eq__(self, other):
+		return isinstance(other, RankTransform)
+
+	def __hash__(self):
+		return hash(RankTransform)
+
+	def __reduce__(self):
+		return (self.__class__, ())
+	
 class QuantileTransform(WeightTransform):
 	def __init__(self, q = 0.1):
 		self.name = f"Quantile (q = {q})"
@@ -97,10 +142,19 @@ class QuantileTransform(WeightTransform):
 		tA[tA > 0] = (tA[tA > 0] <= τ).astype(float)
 		return tA
 	
+	def __eq__(self, other):
+		return isinstance(other, QuantileTransform) and self.q == other.q
+
+	def __hash__(self):
+		return hash((QuantileTransform, self.q))
+
+	def __reduce__(self):
+		return (self.__class__, (self.q,))
+	
 class PowerTransform(WeightTransform):
 	def __init__(self, γ = 1.41):
 		self.name = f"Power (γ = {γ})"
-		self.id = f'Pow-{γ}'
+		self.id = f'P-{γ:.2f}'
 		self.γ = γ
 		self.color = cmap_blue(norm_pow_γ(γ))
 
@@ -108,3 +162,12 @@ class PowerTransform(WeightTransform):
 		tA = A.copy()
 		tA = tA ** self.γ
 		return tA
+	
+	def __eq__(self, other):
+		return isinstance(other, PowerTransform) and self.γ == other.γ
+
+	def __hash__(self):
+		return hash((PowerTransform, self.γ))
+
+	def __reduce__(self):
+		return (self.__class__, (self.γ,))

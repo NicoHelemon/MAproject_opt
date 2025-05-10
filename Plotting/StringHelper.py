@@ -51,5 +51,5 @@ def model_str(n, rho, pi, model = None, transformation = None):
 	else:
 		s_model = f"Model: {model.__name__}, Transformation: {transformation.name}\n"
 	s = (f"{s_model}"
-		 f"n = {n}, ρ = {rho}, Π = {np.diag(pi_init(pi)).tolist()}\n")
+		 f"n = {n}, ρ = {rho}, Π = {np.diag(pi_init(pi)).tolist()}\n\n")
 	return s

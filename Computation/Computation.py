@@ -55,6 +55,9 @@ def simulate_in_grid(N, batch, rep, model, model_params, transformations,
 		f'{t.id}_{m_id}': np.zeros((N, N, rep))
 		for t in transformations
 		for m_id in METRICS_ID
+	} | {
+		f'{t.id}_GMM_score': np.zeros((N, N, rep))
+		for t in transformations
 	}
 
 	for i, j, result in results:

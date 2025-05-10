@@ -309,6 +309,20 @@ class lognormWSBM(WSBM):
 
 # Constants II:
 
+def sigmoid(x, x0, k):
+	z = k*(x - x0)
+	z = np.clip(z, -700, +700)
+	return 1/(1 + np.exp(-z))
+
+def step(x, x0):
+	return np.where(x > x0, 1, 0)
+
+def sigmoid_w95(x, x0, w):
+	if w == 0:
+		return step(x, x0)
+	else:
+		return sigmoid(x, x0, np.log(19)/w)
+
 RHOS = [0.1, 0.25, 0.5]
 PIS = [0.1, 0.25, 0.5]
 ALPHAS = [(0.1, 1.0), (0.5, 0.5)]
@@ -319,32 +333,40 @@ MODELS_AND_PARAMS = list(product([betaWSBM], ALPHAS)) + list(product([lognormWSB
 TRANSFORMS_MIN  = [OppositeTransform(), LogTransform(), RankTransform()]
 TRANSFORMS_QTL  = [QuantileTransform(q) for q in [0.01, 0.05, 0.1, 0.25, 0.5]]
 TRANSFORMS_POW  = [PowerTransform(γ) for γ in [(np.sqrt(2) ** i).round(2) for i in [-2, -1, 0, 1, 2]]]
-TRANSFORMS      = TRANSFORMS_POW[1:3] + TRANSFORMS_QTL[2:4] + TRANSFORMS_MIN
+TRANSFORMS      = TRANSFORMS_POW[2:4] + TRANSFORMS_QTL[2:4] + TRANSFORMS_MIN
 TRANSFORMS_EXT  = TRANSFORMS_POW + TRANSFORMS_QTL + TRANSFORMS_MIN
 RHOS_PIS_MODELS = list(product(RHOS, PIS, MODELS))
 
 TRANSFORMS_ID = [t.id for t in TRANSFORMS]
 TRANSFORMS_MAP = {t.id : t for t in TRANSFORMS}
-METRICS_ID = ['Rand', 'C_true', 'C_graph', 'C_embed', 'aC_graph', 'aC_embed']
-METRICS_NAME = ["Rand index", 
+METRICS_ID = ['Rand', 'GMM_score','C_true', 'gC_true', 'C_graph', 'gC_graph', 'C_embed', 'gC_embed']
+METRICS_NAME = ["Rand index",
+				"GMM score", 
 				"True Chernoff information", 
-				"Chernoff graph-estimation", 
+				"Gated true Chernoff information",
+				"Chernoff graph-estimation",
+				"Gated Chernoff graph-estimation",
 				"Chernoff embedding-estimation",
-				"Adjusted Chernoff graph-estimation",
-				"Adjusted Chernoff embedding-estimation"]
+				"Gated Chernoff embedding-estimation"]
 METRICS_MAP = dict(zip(METRICS_ID, METRICS_NAME))
 
-CHERNOFFS_ID = ['C_true', 'C_graph', 'C_embed', 'aC_graph', 'aC_embed']
-CHERNOFFS_ID_COSMETIC_MAP = dict(zip(CHERNOFFS_ID, 
-									 [f'C{sup("true")}', f'C{sup("graph")}', f'C{sup("embed")}', f'aC{sup("graph")}', f'aC{sup("embed")}']))
-CHERNOFFS_CMAP = dict(zip(CHERNOFFS_ID, ['yellow', 'cyan', 'magenta', 'teal', 'mediumvioletred']))
+CHERNOFFS_ID = METRICS_ID[2:]
+VANILLA_METRICS_ID = ['Rand', 'GMM_score', 'C_true', 'C_graph', 'C_embed']
+NON_GATED_CHERNOFFS_ID = ['C_true', 'C_graph', 'C_embed']
+GATED_CHERNOFFS_ID = ['gC_true', 'gC_graph', 'gC_embed']
+GATING_FUNCTIONS = dict(zip(GATED_CHERNOFFS_ID, 
+							[lambda x: sigmoid_w95(x, x0=1, w=0),
+							 lambda x: sigmoid_w95(x, x0=1, w=0), 
+							 lambda x: sigmoid_w95(x, x0=1, w=0)]))
+CHERNOFFS_ID_COSMETIC_MAP = dict(zip(CHERNOFFS_ID, [''.join([C.split('_')[0], sup(C.split('_')[1])]) for C in CHERNOFFS_ID]))
+CHERNOFFS_CMAP = dict(zip(CHERNOFFS_ID, ['yellow', 'gold', 'cyan', 'teal', 'magenta', 'mediumvioletred']))
 
 
 BIASES = ['abs', 'rel', 'log']
 BIASES_NAME = ['Absolute bias', 'Relative bias', 'Log-ratio bias']
 BIASES_MAP = dict(zip(BIASES, BIASES_NAME))
 
-TRANSFORMS_CMAP = {t.color : t.id for t in TRANSFORMS_EXT}
+TRANSFORMS_CMAP = {t : t.color for t in TRANSFORMS_EXT}
 
 CMAP = CHERNOFFS_CMAP | TRANSFORMS_CMAP
 

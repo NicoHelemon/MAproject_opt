@@ -6,15 +6,6 @@ from scipy.ndimage import convolve
 
 from Objects.WSBM import *
 
-def sigmoid_gmm_score(window_95 = 10, x0 = -5):
-	k  = np.log(19)/window_95
-	x0 = x0
-
-	def sigmoid(x):
-		return 1/(1 + np.exp(-k*(x - x0)))
-	
-	return sigmoid
-
 def kernel(window = 3, dim = 2, exterior_total_weight = None):
 	if exterior_total_weight is None: 
 		exterior_total_weight = dim * 0.5
@@ -30,7 +21,9 @@ def local_weighted_average(tensor, K = None):
 	M = M / convolve(np.ones(tensor.shape[:-1]), K, mode='constant', cval=0.0)
 	return M / tensor.shape[-1]
 
-def best_transform_metrics(m, transforms = TRANSFORMS_EXT.copy()):
+def best_transform_metrics(m, transforms = None):
+	if transforms is None: transforms = TRANSFORMS_EXT.copy()
+
 	def stack_grids(m, metric):
 		return np.stack([m[t][metric] for t in transforms], axis=-1)
 
@@ -91,11 +84,18 @@ def bias(m, eps = np.finfo(float).eps):
 		return np.log(pred / (true + eps))
 
 	m['Bias'] = {}
-	for C in CHERNOFFS_ID[1:]:
-		m['Bias'][C] = {}
-		m['Bias'][C]['abs'] = abs_bias(m['C_true'], m[C])
-		m['Bias'][C]['rel'] = rel_bias(m['C_true'], m[C])
-		m['Bias'][C]['log'] = log_bias(m['C_true'], m[C])
+	m['Bias']['C_true'] = {}
+	m['Bias']['gC_true'] = {}
+	for C in NON_GATED_CHERNOFFS_ID[1:]:
+		m['Bias']['C_true'][C] = {}
+		m['Bias']['C_true'][C]['abs'] = abs_bias(m['C_true'], m[C])
+		m['Bias']['C_true'][C]['rel'] = rel_bias(m['C_true'], m[C])
+		m['Bias']['C_true'][C]['log'] = log_bias(m['C_true'], m[C])
+	for C in GATED_CHERNOFFS_ID[1:]:
+		m['Bias']['gC_true'][C] = {}
+		m['Bias']['gC_true'][C]['abs'] = abs_bias(m['gC_true'], m[C])
+		m['Bias']['gC_true'][C]['rel'] = rel_bias(m['gC_true'], m[C])
+		m['Bias']['gC_true'][C]['log'] = log_bias(m['gC_true'], m[C])
 
 	return m
 
@@ -125,13 +125,17 @@ def correlation(m):
 	m['Correlation'] = {}
 
 	m['Correlation']['Rand']  = {metric: partial_correlation(m['Rand'], m[metric]) 
-							  for metric in CHERNOFFS_ID}
+							  for metric in METRICS_ID[1:]}
 	m['Correlation']['C_true'] = {metric: partial_correlation(m['C_true'], m[metric]) 
-							   for metric in CHERNOFFS_ID[1:]}
+							   for metric in NON_GATED_CHERNOFFS_ID[1:]}
+	m['Correlation']['gC_true'] = {metric: partial_correlation(m['gC_true'], m[metric]) 
+							   for metric in GATED_CHERNOFFS_ID[1:]}
 
 	return m
 
-def aggregate_metrics(metrics, transforms = TRANSFORMS_EXT.copy()):
+def aggregate_metrics(metrics, transforms = None):
+	if transforms is None: transforms = TRANSFORMS_EXT.copy()
+
 	for (rho, pi, m), t in product(RHOS_PIS_MODELS, transforms):
 		metrics[f'rho:{rho}']	= {}
 		metrics[f'pi:{pi}']  	= {}
