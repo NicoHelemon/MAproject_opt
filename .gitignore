@@ -6,3 +6,6 @@ data_for_gifs/
 
 # ignore sqrt-scaled_p22_fixed directory
 sqrt-scaled_p22_fixed/
+
+# ignore every .cpkl file anywhere in the repo
+*.cpkl
