@@ -4,7 +4,7 @@ import os
 
 from joblib import Parallel, delayed
 from tqdm import tqdm
-import cloudpickle
+from joblib import dump
 
 from Objects.TWSBMInstance import *
 
@@ -134,5 +134,6 @@ def simulate_in_line_with_one_varying_param(
 	}
 
 	name = f'{model.name}_{t.id}_{varying_param_str}_{varying_param_bounds[0]}_{varying_param_bounds[1]}'
-	with open(f'Computation/{name}.cpkl', 'wb') as f:
-		cloudpickle.dump(dico, f)
+	path = f"Computation/data_for_gifs"
+	os.makedirs(path, exist_ok=True)
+	dump(dico, f"{path}/{name}.joblib", compress=('lz4', 5))
