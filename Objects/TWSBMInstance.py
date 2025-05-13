@@ -53,6 +53,25 @@ class TWSBMInstance:
 		self.C_embedding = self.__chernoff_information_embedding(self.M, self.Σ, len(self.Z_hat))
 
 		self.RAND = adjusted_rand_score(self.Z, self.Z_hat)
+
+	def to_dict(self):
+		return {
+			'model_name': self.model_name,
+			'transform_name': self.transform_name,
+			'A': self.A,
+			'Z': self.Z,
+			'X': self.X,
+			'Z_hat': self.Z_hat,
+			'Π_hat': self.Π_hat,
+			'pi_1' : np.min(np.diag(self.Π_hat)),
+			'M': self.M,
+			'Σ': self.Σ,
+			'GMM_score': self.GMM_score,
+			'C_true': self.C_true,
+			'C_graph': self.C_graph,
+			'C_embed': self.C_embedding,
+			'Rand': self.RAND
+		}
 	
 	def __empirical_B_C(self, A, Z, K = None):
 		nodes = np.bincount(Z, minlength=K)

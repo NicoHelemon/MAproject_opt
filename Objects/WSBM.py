@@ -60,9 +60,9 @@ class betaWSBM(WSBM):
 
 	def instance_name_str(α):
 		if α[0, 0] != α[1, 1]:
-			return f'Beta-WSBM:\nα{sub("11")} = {α[0, 0]}, α{sub("12")} = {α[0, 1]}, α{sub("22")} = {α[1, 1]}'
+			return f'Beta-WSBM:\nα{sub("11")} = {α[0, 0]:.2f}, α{sub("12")} = {α[0, 1]:.2f}, α{sub("22")} = {α[1, 1]:.2f}'
 		else:
-			return f'Beta-WSBM:\nα{sub("11")} = α{sub("22")} = {α[0, 0]}, α{sub("12")} = {α[0, 1]}'
+			return f'Beta-WSBM:\nα{sub("11")} = α{sub("22")} = {α[0, 0]:.2f}, α{sub("12")} = {α[0, 1]:.2f}'
 
 	def __init__(self, ρ, Π, α, n = n, p22 = 'fixed'):
 		# n: number of nodes
@@ -168,9 +168,9 @@ class lognormWSBM(WSBM):
 
 	def instance_name_str(Σ, μ = μ):
 		if Σ[0, 0] != Σ[1, 1]:
-			return f'Lognorm-WSBM: μ = {μ:.2f}\nσ{sub("11")} = {Σ[0, 0]}, σ{sub("12")} = {Σ[0, 1]}, σ{sub("22")} = {Σ[1, 1]}'
+			return f'Lognorm-WSBM: μ = {μ:.2f}\nσ{sub("11")} = {Σ[0, 0]:.2f}, σ{sub("12")} = {Σ[0, 1]:.2f}, σ{sub("22")} = {Σ[1, 1]:.2f}'
 		else:
-			return f'Lognorm-WSBM: μ = {μ:.2f}\nσ{sub("11")} = σ{sub("22")} = {Σ[0, 0]}, σ{sub("12")} = {Σ[0, 1]}'
+			return f'Lognorm-WSBM: μ = {μ:.2f}\nσ{sub("11")} = σ{sub("22")} = {Σ[0, 0]:.2f}, σ{sub("12")} = {Σ[0, 1]:.2f}'
 
 	def __init__(self, ρ, Π, Σ, n = n, p22 = 'fixed', tail_control = None):
 		# n: number of nodes
@@ -337,8 +337,8 @@ TRANSFORMS      = TRANSFORMS_POW[2:4] + TRANSFORMS_QTL[2:4] + TRANSFORMS_MIN
 TRANSFORMS_EXT  = TRANSFORMS_POW + TRANSFORMS_QTL + TRANSFORMS_MIN
 RHOS_PIS_MODELS = list(product(RHOS, PIS, MODELS))
 
-TRANSFORMS_ID = [t.id for t in TRANSFORMS]
-TRANSFORMS_MAP = {t.id : t for t in TRANSFORMS}
+TRANSFORMS_ID = [t.id for t in TRANSFORMS_EXT]
+TRANSFORMS_MAP = {t.id : t for t in TRANSFORMS_EXT}
 METRICS_ID = ['Rand', 'GMM_score','C_true', 'gC_true', 'C_graph', 'gC_graph', 'C_embed', 'gC_embed']
 METRICS_NAME = ["Rand index",
 				"GMM score", 
@@ -359,6 +359,7 @@ GATING_FUNCTIONS = dict(zip(GATED_CHERNOFFS_ID,
 							 lambda x: sigmoid_w95(x, x0=1, w=0), 
 							 lambda x: sigmoid_w95(x, x0=1, w=0)]))
 CHERNOFFS_ID_COSMETIC_MAP = dict(zip(CHERNOFFS_ID, [''.join([C.split('_')[0], sup(C.split('_')[1])]) for C in CHERNOFFS_ID]))
+METRICS_ID_COSMETIC_MAP = {'Rand' : 'Rand', 'GMM_score' : 'GMM score'} | CHERNOFFS_ID_COSMETIC_MAP
 CHERNOFFS_CMAP = dict(zip(CHERNOFFS_ID, ['yellow', 'gold', 'cyan', 'teal', 'magenta', 'mediumvioletred']))
 
 

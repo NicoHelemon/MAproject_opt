@@ -1,10 +1,10 @@
 
 import numpy as np
-import time
 import os
 
 from joblib import Parallel, delayed
 from tqdm import tqdm
+import cloudpickle
 
 from Objects.TWSBMInstance import *
 
@@ -46,7 +46,9 @@ def simulate_in_grid(N, batch, rep, model, model_params, transformations,
 		for j, p12 in enumerate(p12_linspace)
 	]
 
-	results = Parallel(n_jobs=6, backend="loky")(
+	n_jobs = max(1, int(os.cpu_count()*3/4))
+	print(f"Using {n_jobs} threads (out of {os.cpu_count()})")
+	results = Parallel(n_jobs=n_jobs, backend="loky")(
 		delayed(simulate_one_grid_point)(*task)
 		for task in tqdm(tasks, desc="Simulation", total=len(tasks))
 	)
@@ -68,3 +70,69 @@ def simulate_in_grid(N, batch, rep, model, model_params, transformations,
 	path = f"Computation/{emb_mode_p22_path_str(emb_mode, p22)}/{file}"
 	os.makedirs(path, exist_ok=True)
 	np.savez_compressed(f"{path}/{batch}.npz", **metrics)
+
+def simulate_in_line_with_one_varying_param(
+	N = 100,
+	R = 100,
+	model = betaWSBM,
+	rho   = 0.25,
+	pi    = 0.25,
+	p11   = 0.25,
+	p12   = 0.5,
+	t     = PowerTransform(1),
+	varying_param = 'rho',
+	varying_param_bounds = (0, 0.5)):
+
+	try:
+		if issubclass(varying_param, WeightTransform):
+			assert isinstance(t, varying_param), "t must be of the same type as varying_param"
+	except TypeError:
+		assert isinstance(varying_param, str), "varying_param must be a string or a WeightTransform subclass"
+	params = np.linspace(*varying_param_bounds, N)
+	emb_mode, p22 = EMB_MODES[0], P22S[0]
+
+	def _run_for_vp(vp, rho=rho, pi=pi, p11=p11, p12=p12, t=t):
+		if varying_param == 'rho':
+			rho = vp
+		elif varying_param == 'pi':
+			pi = vp
+		elif varying_param == 'p11':
+			p11 = vp
+		elif varying_param == 'p12':
+			p12 = vp
+		elif issubclass(varying_param, WeightTransform):
+			t = varying_param(vp)
+		else:
+			raise ValueError(f"Unknown varying parameter: {varying_param}")
+
+		m = model(rho, pi, (p11, p12), p22=p22)
+
+		results = []
+		for j in range(R):
+			A, Z = m(42+j)
+			G = TWSBMInstance(model = m, transformation = t, A = t(A), Z = Z, emb_mode = emb_mode)
+			results.append(G.to_dict())
+		return results
+
+	n_jobs = max(1, int(os.cpu_count()*3/4))
+	print(f"Using {n_jobs} threads (out of {os.cpu_count()})")
+	all_results = Parallel(n_jobs=n_jobs, backend="loky")(
+		delayed(_run_for_vp)(vp) for vp in tqdm(params, desc="Simulation"))
+
+	graphs = np.array(all_results, dtype=object)
+	metrics = {m_id : {} for m_id in VANILLA_METRICS_ID + ['pi1']}
+	for m_id in VANILLA_METRICS_ID:
+		metrics[m_id]['mean'] = np.array([np.mean([g[m_id] for g in graphs[i]]) for i in range(N)])
+		metrics[m_id]['std']  = np.array([np.std([g[m_id]  for g in graphs[i]]) for i in range(N)])
+
+	varying_param_str = varying_param if isinstance(varying_param, str) else varying_param.__name__
+	dico = {
+		'varying_param': varying_param_str,
+		'varying_param_bounds': varying_param_bounds,
+		'metrics': metrics,
+		'graphs': graphs[:, 0],
+	}
+
+	name = f'{model.name}_{t.id}_{varying_param_str}_{varying_param_bounds[0]}_{varying_param_bounds[1]}'
+	with open(f'Computation/{name}.cpkl', 'wb') as f:
+		cloudpickle.dump(dico, f)

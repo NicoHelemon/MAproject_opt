@@ -13,6 +13,11 @@ import matplotlib.patches as mpatches
 from matplotlib import cm
 from pathlib import Path
 import matplotlib as mpl
+import pandas as pd
+from matplotlib.legend_handler import HandlerBase
+from matplotlib.artist import Artist
+from brokenaxes import brokenaxes
+from matplotlib.lines import Line2D
 
 from Objects.WSBM import *
 from .StringHelper import *
@@ -20,6 +25,32 @@ from Computation.ExtraMetrics import partial_correlation
 
 n = 1000
 K = 2
+
+
+# 2) Handler qui dessine le dégradé
+class HandlerColormap(HandlerBase):
+	def __init__(self, cmap, norm, orientation='horizontal', **kw):
+		super().__init__(**kw)
+		self.cmap = cmap
+		self.norm = norm
+		self.orientation = orientation
+
+	def create_artists(self, legend, orig_handle,
+					   xdescent, ydescent, width, height,
+					   fontsize, trans):
+		grad = np.linspace(0, 1, 256).reshape(1, -1)
+		if self.orientation == 'vertical':
+			grad = grad.T
+		img = legend.axes.imshow(
+			grad,
+			cmap=self.cmap,
+			norm=self.norm,
+			extent=[xdescent, xdescent+width, ydescent, ydescent+height],
+			origin='lower',
+			transform=trans,
+			aspect='auto'
+		)
+		return [img]
 
 class Plotter:
 	def __init__(self, folder_path):
@@ -53,7 +84,7 @@ class Plotter:
 				axes[i, 0].set_ylabel(model.name + "\n")
 				for j, G in enumerate(model_metrics.values()):
 					Z, X, Z_hat, M, Σ, C_true, C_graph, C_embedding, RAND = G.Z, G.X, G.Z_hat, G.M, G.Σ, G.C_true, G.C_graph, G.C_embedding, G.RAND
-					gated_GMM_score = sigmoid_gmm_score()(G.GMM_score)
+					gated_GMM_score = sigmoid_w95(G.GMM_score, -5, 10)
 					Z_hat = label_permutation(Z, Z_hat)
 					ax = axes[i][j]
 					plt.sca(ax)
@@ -93,10 +124,12 @@ class Plotter:
 					Π_hat = list(np.sort(np.diag(G.Π_hat)).round(2))
 					stats = [f"RI:  {RAND:.2f}",
 			  				 f"ΠẐ: {Π_hat}",
-							 f"GS:  {G.GMM_score:.2f} ({gated_GMM_score:.2f})",
+							 f"GS:  {G.GMM_score:.2f}",
 			  				 f"CT:  {C_true:.5f}",
 							 f"CG: {C_graph:.5f}",
 							 f"CE: {C_embedding:.5f}"]
+					if q_outliers > 0:
+						stats.append(f"Out-masking: {int(q_outliers*100)}%")
 					for stat in stats:
 						ax.plot([], [], ' ', label=stat, linestyle = None, marker = "")
 					ax.legend(
@@ -113,140 +146,98 @@ class Plotter:
 
 		switch(mode)
 
-	def plot_scatter_Rand_vs_Chernoff(self, metrics, n_points_ratio_displayed=1.0,
-									C_transform = 'Sigmoid-Ln', n=n, K=K, transforms = None):
+	def plot_correlation(self, model, metrics_g, m_id1, m_id2, color = 'Reds'):
+		col_labels = list(product(RHOS, PIS))
+		row_labels = TRANSFORMS_EXT
+		data = np.zeros((len(row_labels), len(col_labels)))
 
-		if transforms is None: transforms = TRANSFORMS_EXT.copy()
+		for i, t in enumerate(row_labels):
+			for j, (rho, pi) in enumerate(col_labels):
+				data[i, j] = metrics_g[model][(rho, pi, t)]['Correlation'][m_id1][m_id2]
 
-		if C_transform == 'Sigmoid-Ln':
-			λ, b = 1, -7
-			def transform(x, λ=λ, b=b):
-				return 1 / (1 + np.exp(-λ * (np.log(x) - b)))
-		elif C_transform == 'Ln':
-			def transform(x):
-				return np.log(x)
-		else:
-			raise ValueError("Invalid C_transform. Choose 'Sigmoid-Ln' or 'Ln'.")
+		df   = pd.DataFrame(data, index=row_labels, columns=col_labels)
+		df_t = df.T
 
-		skip = int(np.ceil(1 / n_points_ratio_displayed))
-		n_points = len(metrics['Rand'][::skip])
-		n_points_ratio_displayed_str = ""
-		#if n_points_ratio_displayed < 1.0:
-		#	n_points_ratio_displayed_str = f" ({n_points_ratio_displayed * 100:.0f}% du total)"
+		index = df_t.index
+		rhos  = [ρ for ρ,_ in index]
+		pis   = [π for _,π in index]
 
-		fig, axes = plt.subplots(4, len(CHERNOFFS_ID), figsize=(6 * len(CHERNOFFS_ID), 24))
-		global_title = (f"Rand vs Chernoff information scatter plots\n"
-						f"For WSBM graphs of size n = {n}, with K = {K} communities\n\n\n")
-		fig.suptitle(global_title, fontsize=20)
-		sub_title = f"Number of points displayed (per plot): {n_points}{n_points_ratio_displayed_str}\n"
-		fig.text(0.5, 0.935, sub_title, ha='center', fontsize=14)
-		
-		def scatter_polishing(ax, i):
-			if i == 0: ax.set_ylabel(METRICS_MAP['Rand'], fontsize=12)
-			if C_transform == 'Sigmoid-Ln':
-				vmin = 0.0
-				vmax = 1.0
-			else:
-				vals = np.concatenate([metrics[m_id] for m_id in CHERNOFFS_ID])
-				vals = vals[vals > 0]
-				vmin = np.log(np.min(vals))
-				vmax = np.log(np.max(vals))
-			ax.set_xlim(vmin, vmax)
-			ax.grid(True, linewidth=0.5)
-			leg = ax.legend(scatterpoints=1, markerscale=8, loc = 'upper left')
-			for hand in leg.legend_handles:
-				hand.set_alpha(1)
-			for spine in ax.spines.values():
-				spine.set_visible(True)
-				spine.set_linewidth(1)
+		unique_rhos    = sorted(set(rhos), key=rhos.index)
+		group_indices  = {ρ: [i for i,(ρ_,_) in enumerate(index) if ρ_==ρ]
+						for ρ in unique_rhos}
+		group_centers  = {ρ: np.mean(idxs) for ρ,idxs in group_indices.items()}
+		group_bounds   = {ρ: (min(idxs)-0.5, max(idxs)+0.5) 
+						for ρ,idxs in group_indices.items()}
 
-		def get_xysc(key, m_id):
-			x, y = metrics[key][m_id], metrics[key]['Rand']
-			corr, auc_corr, (_, corrs) = partial_correlation(x, y)
-			min_corrs, max_corrs = np.min(corrs), np.max(corrs)
-			abs_max = min_corrs if abs(min_corrs) > abs(max_corrs) else max_corrs
-			x, y = x[::skip], y[::skip]
-			x, y = x[x>0], y[x>0]
-			x = transform(x)
-			return x, y, corr, auc_corr, abs_max
+		n0, m0 = df_t.shape
+		df_t['pi_total'] = [
+			metrics_g[model][f'pi:{π}']['Correlation'][m_id1][m_id2] if 3 <= i < 6
+			else np.nan for i, (ρ, π) in enumerate(df_t.index)
+		]
+		df_t['rho_total'] = [
+			metrics_g[model][f'rho:{ρ}']['Correlation'][m_id1][m_id2] if i % 3 == 1
+			else -metrics_g[model][f'rho:{ρ}']['Correlation'][m_id1][m_id2] for i, (ρ, π) in enumerate(df_t.index)
+		]
 
-		for i, (ax, m_id) in enumerate(zip(axes[0], CHERNOFFS_ID)):
-			cmap = cm.viridis
-			nc = len(RHOS)
-			for j, rho in enumerate(RHOS):
-				x, y, corr, auc_corr, max_corr = get_xysc(f'rho:{rho}', m_id)
-				label_str = (f'ρ = {rho}: '
-							f'S-corr = {corr:.2f}')#\n'
-							#f'auc-c = {auc_corr:.2f}, '
-							#f'max-c = {max_corr:.2f}')
-				ax.scatter(x, y, s=0.5, alpha=0.5,
-						color = cmap(j / nc),
-						label = label_str)
-				
-			scatter_polishing(ax, i)
+		df_t.loc['transform_total'] = (
+			[metrics_g[model][t]['Correlation'][m_id1][m_id2]
+			for t in df_t.columns[:-2]]
+			+ [np.nan, np.nan]
+		)
 
-			x, y = metrics[m_id], metrics['Rand']
-			x, y = x[x>0], y[x>0]
-			corr, auc_corr, (_, corrs) = partial_correlation(x, y)
-			min_corrs, max_corrs = np.min(corrs), np.max(corrs)
-			abs_max = min_corrs if abs(min_corrs) > abs(max_corrs) else max_corrs
-			title = (f'{METRICS_MAP[m_id]}\nSpearman correlation = {corr:.2f}')#\n'
-			#f'AUC(Partial S-corr) = {auc_corr:.2f}, Max(Partial S-corr) = {abs_max:.2f}')
-			ax.set_title(title, fontsize=12)
+		fig, ax = plt.subplots(
+			figsize=(
+				max(6, len(df_t.columns)*0.5),
+				max(6, len(df_t.index)*0.25)
+			)
+		)
+		cmap = plt.get_cmap(color)
+		im   = ax.imshow(np.abs(df_t.values), cmap=cmap, vmin=0, vmax=1, aspect='equal')
 
-		for i, (ax, m_id) in enumerate(zip(axes[1], CHERNOFFS_ID)):
-			cmap = cm.plasma
-			nc = len(PIS)
-			for j, pi in enumerate(PIS):
-				x, y, corr, auc_corr, max_corr = get_xysc(f'pi:{pi}', m_id)
-				label_str = (f'π = {pi}: '
-							f'S-corr = {corr:.2f}')#\n'
-							#f'auc-c = {auc_corr:.2f}, '
-							#f'max-c = {max_corr:.2f}')
-				ax.scatter(x, y, s=0.5, alpha=0.5,
-						color = cmap(j / nc),
-						label = label_str)
-				
-			scatter_polishing(ax, i)
+		ax.hlines(n0 - 0.5, -0.5, m0 + 2 - 0.5, color='black', linewidth=1)
+		ax.vlines(m0 - 0.5, -0.5, n0 + 1 - 0.5, color='black', linewidth=1)
+		ax.vlines(m0 - 0.5 + 1, -0.5, n0 + 1 - 1.5, color='black', linewidth=1)
 
-		for i, (ax, m_id) in enumerate(zip(axes[2], CHERNOFFS_ID)):
-			cmap = cm.inferno
-			nc = len(MODELS)
-			for j, model in enumerate(MODELS):
-				x, y, corr, auc_corr, max_corr = get_xysc(model, m_id)
-				label_str = (f'{model.name}: '
-							f'S-corr = {corr:.2f}')#\n'
-							#f'auc-c = {auc_corr:.2f}, '
-							#f'max-c = {max_corr:.2f}')
-				ax.scatter(x, y, s=0.5, alpha=0.5,
-						color = cmap(j / nc),
-						label = label_str)
-				
-			scatter_polishing(ax, i)
+		ax.set_xticks(np.arange(len(df_t.columns) - 2))
+		ax.set_xticklabels([c.id for c in df_t.columns[:-2]], rotation=45, fontsize=8)
+		ax.set_xlabel('Transformations t', fontsize=10)
+		ax.xaxis.tick_top()
+		ax.xaxis.set_label_position('top')
 
-		def transform_str(m_id):
-			m_id_str = CHERNOFFS_ID_COSMETIC_MAP[m_id]
-			if C_transform == 'Sigmoid-Ln':
-				return f'\nSigmoid(ln({m_id_str}))'
-			else:
-				return f'\nln({m_id_str})'
+		ax.set_yticks(np.arange(len(df_t.index) - 1))
+		ax.set_yticklabels([
+			f"{idx[1]:.2f}"
+			for idx in df_t.index[:-1]
+		], fontsize=6)
+		ax.yaxis.set_tick_params(length=4)
+		ax.set_ylabel('ρ × π\n\n\n', fontsize=10, rotation=90)
 
-		for i, (ax, m_id) in enumerate(zip(axes[3], CHERNOFFS_ID)):
-			for t in transforms:
-				x, y, corr, auc_corr, max_corr = get_xysc(t, m_id)
-				label_str = (f'{t.id}: '
-							f'S-corr = {corr:.2f}')#\n'
-							#f'auc-c = {auc_corr:.2f}, '
-							#f'max-c = {max_corr:.2f}')
-				ax.scatter(x, y, s=0.5, alpha=0.5,
-						color = TRANSFORMS_CMAP[t],
-						label = label_str)
-				
-			scatter_polishing(ax, i)
-			ax.set_xlabel(transform_str(m_id), fontsize=12)
+		for ρ in unique_rhos:
+			y0, y1 = group_bounds[ρ]
+			ax.hlines([y0, y1], -0.5, len(df_t.columns)-0.5,
+					colors='black', linewidth=1)
+			ax.text(-1.5, group_centers[ρ], f"{ρ:.2f}",
+					va='center', ha='right', fontsize=8)
+			
+		n0, m0 = df_t.shape
 
+		for i in range(n0):
+			for j in range(m0):
+				ax.text(
+					j, i,
+					f"{df_t.iat[i, j]:.2f}" if j < m0 - 2 or df_t.iat[i, j] > 0 else "",
+					ha='center', va='center',
+					fontsize=8, color='black',
+					fontweight='bold' if (i == n0 - 1) or (j == m0 - 1) or (j == m0 - 2) else 'normal'
+				)
+
+		plt.title(f"{model.name}-WSBM: Spearman's correlation Heatmap\n" + 
+			f"{METRICS_ID_COSMETIC_MAP[m_id1]}  vs  {METRICS_ID_COSMETIC_MAP[m_id2]}" +
+			f" (Overall s-corr: {metrics_g[model]['Correlation'][m_id1][m_id2]:.2f})", fontsize=12)
 		plt.tight_layout()
-		self.save_file('', f'Rand_vs_Chernoff_{C_transform}', dpi=400)
+		m_id1 = m_id1[1:] if m_id1.startswith('g') else m_id1
+		m_id2 = m_id2[1:] + '_g' if m_id2.startswith('g') else m_id2
+		self.save_file(f'Correlation/{model.name}_{m_id1}', m_id2, dpi=400)
 
 	def plot_metrics_heatmap(self, rho, pi, model, transformation, metrics, shared = False, log = False, corr_info = True, n = n):
 		if shared:
@@ -658,4 +649,233 @@ class Plotter:
 		ax.legend(handles=[mpatches.Patch(color='grey', label='Rand Regret')], loc='upper right', fontsize=8)
 
 		plt.tight_layout()
+		chernoff = chernoff[1:] + '_g' if chernoff.startswith('g') else chernoff
 		self.save_file(f'Best_Transform/{model.name}Rands', f'Best_Transform_Transforms_Rands_{chernoff}', dpi=400)
+
+	def plot_rand_by_sigmoid_params_model_wise(self, C, best_rand_avg):
+		models = MODELS.copy()
+		model_colormaps = dict(zip(MODELS, ['Blues', 'Oranges']))
+
+		x0_list, w_list = zip(*best_rand_avg[models[0]][C].keys())
+		x0_list, w_list = set(x0 for x0 in x0_list if isinstance(x0, float)), set(w for w in w_list if isinstance(w, float))
+		shifts, windows = np.array(sorted(x0_list)), np.array(sorted(w_list))
+
+		ylim_size = 0.025
+		ylim0 = best_rand_avg[models[1]][C]["no gating"] + np.array([-1, 1]) * ylim_size
+		ylim1 = best_rand_avg[models[0]][C]["no gating"] + np.array([-1, 1]) * ylim_size
+
+		fig = plt.figure(figsize=(6, 6))
+		bax = brokenaxes(
+			ylims=(ylim0, ylim1),
+			hspace=.05,
+			despine=True,
+			fig=fig)
+
+		for ax in bax.axs:
+			ax.set_facecolor('#505050')  # anthracite
+
+		# 2) Plot curves and annotate
+		max_info = {}
+		for model in models:
+			# Plot sigmoid curves per window
+			cmap = plt.get_cmap(model_colormaps[model])
+			colors = cmap(np.linspace(0.3, 1.0, len(windows)))
+			for idx, w in enumerate(windows):
+				y_vals = [best_rand_avg[model][C][(x0, w)] for x0 in shifts]
+				bax.plot(shifts, y_vals, color=colors[idx], alpha=0.5)
+
+			# Horizontal line for no gating with annotation
+			y0 = best_rand_avg[model][C]["no gating"]
+			bax.hlines(y0, xmin=min(shifts), xmax=max(shifts), linestyles='-', linewidth=1, colors='black')
+			mid_x = (min(shifts) + max(shifts)) / 2
+			bax.annotate(
+				f"Non-Gated:\nR = {y0:.4f}",
+				xy=(mid_x, y0), xytext=(-20, -15), textcoords='offset points', va='center', fontsize='small'
+			)
+
+			"""
+			ymax = best_rand_avg[model]["max"]
+			print(ymax)
+			bax.hlines(ymax, xmin=min(shifts), xmax=max(shifts), linestyles='--', linewidth=1, colors='black')
+			bax.annotate(
+				f"Max:\nR = {ymax:.4f}",
+				xy=(mid_x, ymax), xytext=(-20, -15), textcoords='offset points', va='center', fontsize=6
+			)"""
+
+
+			# Find max Rand Avg across (x0, w) for sigmoid
+			best_val = -np.inf
+			best_params = None
+			
+			for x0 in shifts:
+				for w in windows:
+					val = best_rand_avg[model][C][(x0, w)]
+					if val > best_val:
+						best_val = val
+						best_params = (x0, w)
+			max_info[model] = (best_params, best_val)
+
+		# Annotate max points and compare across models
+		for model in models:
+			cmap = plt.get_cmap(model_colormaps[model])
+			colors = cmap(windows / windows[-1])
+			(x0_m, w_m), best_val = max_info[model]
+			color_model = colors[np.where(windows == w_m)[0][0]]
+
+			# Marker for model max
+			bax.scatter([x0_m], [best_val], marker='o', s=25, edgecolors='k', facecolors=color_model, zorder=5)
+			bax.annotate(
+				f"s₀={x0_m}, w={w_m:.2f}\nSigm(s₀,w)-Gated:\nR = {best_val:.4f}",
+				xy=(x0_m, best_val), textcoords='offset points', xytext=(-30, 7.5), fontsize='small'
+			)
+
+			# Mark and label other models at the same (x0, w)
+			for other in models:
+				if other is not model:
+					val_other = best_rand_avg[other][C][(x0_m, w_m)]
+					bax.scatter([x0_m], [val_other], marker='o', s=25, edgecolors='k', facecolors=color_model, zorder=5)
+					bax.annotate(
+						f"R = {val_other:.4f}",
+						xy=(x0_m, val_other), textcoords='offset points', fontsize='small', xytext=(-20, -12.5),
+					)
+
+		for ax, model in zip(bax.axs, models):
+			cmap = plt.get_cmap(model_colormaps[model])
+			norm = mpl.colors.Normalize(vmin=0, vmax=1)
+
+			ax.legend(
+				handles = [mpl.cm.ScalarMappable(norm=norm, cmap=cmap)],
+				labels = [f"w ∈ [{windows[0]:.0f}, {windows[-1]:.0f}]"],
+				handler_map={mpl.cm.ScalarMappable: HandlerColormap(cmap, norm)},
+				loc='upper left',
+				fontsize='small',
+				title_fontsize='small',
+				#facecolor='black',
+				framealpha=1
+			)
+			
+
+		bax.legend(
+			handles = [Line2D([0], [0], color=plt.get_cmap(model_colormaps[model])(windows/windows[-1])[-5],
+						lw=2) for model in models],
+			labels = [model.name for model in models],
+			loc='lower left',
+			fontsize='small',
+			title_fontsize='small',
+			#facecolor='black',
+			framealpha=1)
+
+
+		bax.set_xlabel('s₀')
+		bax.set_xlim(-15.5, 5.5)
+		bax.set_xticks([-15, -10, -5, 0, 5])
+		bax.set_ylabel('Rand Avg\n')
+		bax.set_title(f"Rand Avg for Sigmoid(s₀,w)(GMM-score)-Gated {CHERNOFFS_ID_COSMETIC_MAP[C[1:]]}\n")
+
+		self.save_file(f'Sigmoid_Params_Optimization', f'{C}_model_wise', dpi=400)
+
+	def plot_rand_by_sigmoid_params(self, C, best_rand_avg, color = 'Greens'):
+		models = MODELS.copy()
+
+		x0_list, w_list = zip(*best_rand_avg[MODELS[0]][C].keys())
+		x0_list, w_list = set(x0 for x0 in x0_list if isinstance(x0, float)), set(w for w in w_list if isinstance(w, float))
+		shifts, windows = np.array(sorted(x0_list)), np.array(sorted(w_list))
+
+		ylim_size = 0.05
+		y0_vals = [best_rand_avg[m][C]["no gating"] for m in models]
+		avg_baseline = np.mean(y0_vals)
+		ymax_vals = [best_rand_avg[m]["max"] for m in models]
+		avg_max = np.mean(ymax_vals)
+		ylim = avg_baseline + np.array([-1, 1]) * ylim_size
+
+		fig = plt.figure(figsize=(6, 4))
+		ax = fig.add_subplot(1, 1, 1)
+		ax.set_facecolor('#505050')  # anthracite
+		ax.set_ylim(*ylim)
+
+		cmap = plt.get_cmap(color)
+		colors = cmap(windows / windows[-1])
+
+		max_val = -np.inf
+		max_params = None
+
+		for idx, w in enumerate(windows):
+			y_vals = [
+				(best_rand_avg[models[0]][C][(x0, w)] +
+				best_rand_avg[models[1]][C][(x0, w)]) / 2
+				for x0 in shifts]
+			ax.plot(shifts, y_vals, color=colors[idx], alpha=0.5)
+
+			for x0, y in zip(shifts, y_vals):
+				if y > max_val:
+					max_val = y
+					max_params = (x0, w)
+
+		# ligne horizontale baseline
+		ax.hlines(avg_baseline,
+				xmin=min(shifts), xmax=max(shifts),
+				linestyles='-', linewidth=1, colors='black')
+		mid_x = (min(shifts) + max(shifts)) / 2
+		ax.annotate(
+			f"Non-Gated Avg:\nR = {avg_baseline:.4f}",
+			xy=(mid_x, avg_baseline),
+			xytext=(-20, -15),
+			textcoords='offset points',
+			va='center',
+			fontsize='small'
+		)
+
+		ax.hlines(avg_max,
+				xmin=min(shifts), xmax=max(shifts),
+				linestyles='--', linewidth=1, colors='black')
+		mid_x = (min(shifts) + max(shifts)) / 2
+		ax.annotate(
+			f"Max Avg:\nR = {avg_max:.4f}",
+			xy=(mid_x, avg_max),
+			xytext=(-20, -15),
+			textcoords='offset points',
+			va='center',
+			fontsize='small'
+		)
+
+		# annotation du point global maximal
+		x0_m, w_m = max_params
+		idx_max = np.where(windows == w_m)[0][0]
+		color_max = colors[idx_max]
+		ax.scatter([x0_m], [max_val],
+				marker='o', s=25,
+				edgecolors='k', facecolors=color_max,
+				zorder=5)
+		shift_x = 30 if x0_m < -14 else 0
+		ax.annotate(
+			f"s₀={x0_m}, w={w_m:.2f}\nSigm(s₀,w)-Gated Avg:\nR = {max_val:.4f}",
+			xy=(x0_m, max_val),
+			textcoords='offset points',
+			xytext=(-30 + shift_x, 7.5),
+			fontsize='small'
+		)
+
+		norm = mpl.colors.Normalize(vmin=0, vmax=1)
+
+		ax.legend(
+			handles = [mpl.cm.ScalarMappable(norm=norm, cmap=cmap)],
+			labels = [f"w ∈ [{windows[0]:.0f}, {windows[-1]:.0f}]"],
+			handler_map={mpl.cm.ScalarMappable: HandlerColormap(cmap, norm)},
+			loc='lower left',
+			fontsize='small',
+			title_fontsize='small',
+			#facecolor='black',
+			framealpha=1
+		)
+
+		ax.set_xticks([-15, -10, -5, 0, 5])
+		ax.set_xlim(-15.5, 5.5)
+		ax.set_xlabel('s₀')
+		ax.set_ylabel('Rand Avg\n')
+		ax.set_title(
+			f"Rand Avg for Sigmoid(s₀,w)(GMM-score)-Gated "
+			f"{CHERNOFFS_ID_COSMETIC_MAP[C[1:]]}\n"
+		)
+
+		plt.tight_layout()
+		self.save_file(f'Sigmoid_Params_Optimization', f'{C}_grouped', dpi=400)

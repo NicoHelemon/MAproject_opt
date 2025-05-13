@@ -121,14 +121,21 @@ def partial_correlation(true, pred, num_ticks = 100):
 
 		return corrs[-1], auc(ticks, corrs), partial_corrs
 
-def correlation(m):
+def correlation(m, light = False):
+	if light:
+		corr_metrics_f = lambda true, pred: spearmanr(true.ravel(), pred.ravel())[0]
+	else:
+		corr_metrics_f = partial_correlation
+
 	m['Correlation'] = {}
 
-	m['Correlation']['Rand']  = {metric: partial_correlation(m['Rand'], m[metric]) 
+	m['Correlation']['Rand']  = {metric: corr_metrics_f(m['Rand'], m[metric]) 
 							  for metric in METRICS_ID[1:]}
-	m['Correlation']['C_true'] = {metric: partial_correlation(m['C_true'], m[metric]) 
+	m['Correlation']['GMM_score']  = {metric: corr_metrics_f(m['GMM_score'], m[metric]) 
+							  for metric in METRICS_ID[2:]}
+	m['Correlation']['C_true'] = {metric: corr_metrics_f(m['C_true'], m[metric]) 
 							   for metric in NON_GATED_CHERNOFFS_ID[1:]}
-	m['Correlation']['gC_true'] = {metric: partial_correlation(m['gC_true'], m[metric]) 
+	m['Correlation']['gC_true'] = {metric: corr_metrics_f(m['gC_true'], m[metric]) 
 							   for metric in GATED_CHERNOFFS_ID[1:]}
 
 	return m
@@ -144,6 +151,12 @@ def aggregate_metrics(metrics, transforms = None):
 
 	for m, t in product(MODELS, transforms):
 		metrics[m][t] = {}
+	for m, rho in product(MODELS, RHOS):
+		metrics[m][f'rho:{rho}'] = {}
+	for m, pi in product(MODELS, PIS):
+		metrics[m][f'pi:{pi}'] = {}
+	for m, rho, pi, t in product(MODELS, RHOS, PIS, transforms):
+		metrics[m][(rho, pi, t)] = {}
 			
 	for m_id in METRICS_ID:
 		metrics[m_id] = np.concatenate([metrics[rpm][t][m_id].ravel() 
@@ -168,6 +181,17 @@ def aggregate_metrics(metrics, transforms = None):
 			for t in transforms:
 				metrics[model][t][m_id] = np.concatenate([metrics[(rho, pi, model)][t][m_id].ravel() 
 														   for rho, pi in product(RHOS, PIS)])
+				
+			for rho in RHOS:
+				metrics[model][f'rho:{rho}'][m_id] = np.concatenate([metrics[(rho, pi, model)][t][m_id].ravel() 
+																   for pi, t in product(PIS, transforms)])
+				
+			for pi in PIS:
+				metrics[model][f'pi:{pi}'][m_id] = np.concatenate([metrics[(rho, pi, model)][t][m_id].ravel() 
+																   for rho, t in product(RHOS, transforms)])
+				
+			for rho, pi, t in product(RHOS, PIS, transforms):
+				metrics[model][(rho, pi, t)][m_id] = metrics[(rho, pi, model)][t][m_id].ravel()
 		
 		for t in transforms:
 			metrics[t][m_id] = np.concatenate([metrics[rpm][t][m_id].ravel() 
