@@ -1,2 +1,8 @@
 # ignore all files in the Plots directory
 Plots/
+
+# ignore data_for_gifs directory
+data_for_gifs/
+
+# ignore sqrt-scaled_p22_fixed directory
+sqrt-scaled_p22_fixed/
