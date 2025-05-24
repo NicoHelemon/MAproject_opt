@@ -2,7 +2,7 @@ import numpy as np
 import warnings
 from scipy.stats import spearmanr, ConstantInputWarning
 from sklearn.metrics import auc
-from scipy.ndimage import convolve
+#from scipy.ndimage import convolve
 
 from Objects.WSBM import *
 
@@ -14,12 +14,13 @@ def kernel(window = 3, dim = 2, exterior_total_weight = None):
 	K[tuple([slice(1, -1)] * dim)] = 1
 	return K
 	
+"""	
 def local_weighted_average(tensor, K = None):
 	if K is None: K = kernel(dim = tensor.ndim - 1)
 	assert tensor.ndim == K.ndim + 1, "Tensor and kernel must matching number of dimensions"
 	M = convolve(tensor.astype(float).sum(axis=-1), K, mode='constant', cval=0.0)
 	M = M / convolve(np.ones(tensor.shape[:-1]), K, mode='constant', cval=0.0)
-	return M / tensor.shape[-1]
+	return M / tensor.shape[-1]"""
 
 def best_transform_metrics(m, transforms = None):
 	if transforms is None: transforms = TRANSFORMS_EXT.copy()

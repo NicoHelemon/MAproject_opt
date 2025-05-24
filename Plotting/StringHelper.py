@@ -53,3 +53,12 @@ def model_str(n, rho, pi, model = None, transformation = None):
 	s = (f"{s_model}"
 		 f"n = {n}, ρ = {rho}, Π = {np.diag(pi_init(pi)).tolist()}\n\n")
 	return s
+
+def fancy_matrix_str(arr):
+    rows = [list(map(str, row)) for row in arr]
+    top = "  ".join(rows[0])
+    bot = "  ".join(rows[1])
+    return f"⎡ {top} ⎤\n⎣ {bot} ⎦"
+
+def empty_string_except(s, x = '\n', replacement = ''):
+    return ''.join(c if c == x else replacement for c in s)

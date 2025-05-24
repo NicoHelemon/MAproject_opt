@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import ipywidgets as widgets
 from scipy.stats import spearmanr
+from scipy.linalg import orthogonal_procrustes
 from matplotlib import colors
 from ipywidgets import interact
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
@@ -18,6 +19,12 @@ from matplotlib.legend_handler import HandlerBase
 from matplotlib.artist import Artist
 from brokenaxes import brokenaxes
 from matplotlib.lines import Line2D
+import math
+import matplotlib.gridspec as gridspec
+from joblib import load, dump
+import imageio
+import os
+from scipy.ndimage import convolve1d
 
 from Objects.WSBM import *
 from .StringHelper import *
@@ -53,21 +60,26 @@ class HandlerColormap(HandlerBase):
 		return [img]
 
 class Plotter:
-	def __init__(self, folder_path):
-		self.folder_path = f"Plots/{folder_path}"
+	def __init__(self, folder_path = "", eps = False):
+		eps_str = "eps" if eps else "png"
+		folder_path_str = f"/{folder_path}" if folder_path != "" else ""
+		self.folder_path = f"Plots{folder_path_str}/{eps_str}"
+		self.eps = eps
 		Path(self.folder_path).mkdir(parents=True, exist_ok=True)
 
 
-	def save_file(self, out_path, file_name, dpi = 200, eps = False, close = True):
+	def save_file(self, out_path, file_name, dpi = 200, close = True):
 		Path(f'{self.folder_path}/{out_path}').mkdir(parents = True, exist_ok = True)
 
 		file_name = file_name.replace('.', '')
-		plt.savefig(f'{self.folder_path}/{out_path}/{file_name}.png', dpi=dpi)
-		if eps: plt.savefig(out_path + f'/{file_name}.eps'.replace(' ', '_'), dpi=dpi)
+		if not self.eps:
+			plt.savefig(f'{self.folder_path}/{out_path}/{file_name}.png', dpi=dpi)
+		else:
+			plt.savefig(f'{self.folder_path}/{out_path}/{file_name}.eps', dpi=dpi)
 		if close: plt.close()
 
 	def plot_embedding(self, rho, pi, metrics, n = n, subfolder = '', 
-					mode = 'Truth', ellipse = True, q_outliers = 0):
+					mode = 'Truth', ellipse = True, q_outliers = 0, show_stats = True):
 		def label_permutation(Z_true, Z_pred):
 			matches_no_swap = np.sum(Z_true == Z_pred)
 			matches_swap = np.sum(Z_true == (1 - Z_pred))
@@ -76,12 +88,20 @@ class Plotter:
 		
 		def switch(mode):
 			n_rows, n_cols = len(metrics), len(list(metrics.values())[0].values())
-			fig, axes = plt.subplots(n_rows, n_cols, figsize=(2 + 3*n_cols, 2 + 3*n_rows))
+			fig, axes = plt.subplots(n_rows, n_cols, figsize=(2 + 3*n_cols, 2 + 3*n_rows), squeeze=False)
 			mode_str = "True community labels" if mode == 'Truth' else "Predicted community labels"
-			global_title = mode_str + '\n' + model_str(n, rho, pi)
+			underyling_model = list(metrics.keys())[0]
+			global_title = mode_str + f' on {underyling_model.model_name_with_law_params()}\n' + model_str(n, rho, pi)
+			if self.eps: global_title = empty_string_except(global_title)
 			fig.suptitle(global_title, fontsize=20)
 			for i, (model, model_metrics) in enumerate(metrics.items()):
-				axes[i, 0].set_ylabel(model.name + "\n")
+				axes[i, 0].set_ylabel(model.param_matrix_str + '\n', fontsize=8)
+
+				C_trues     = [G.C_true     for G in model_metrics.values()]
+				C_graphs    = [G.C_graph    for G in model_metrics.values()]
+				C_embeddings= [G.C_embedding for G in model_metrics.values()]
+				j_ct, j_cg, j_ce = map(int, (np.argmax(C_trues), np.argmax(C_graphs), np.argmax(C_embeddings)))
+
 				for j, G in enumerate(model_metrics.values()):
 					Z, X, Z_hat, M, Σ, C_true, C_graph, C_embedding, RAND = G.Z, G.X, G.Z_hat, G.M, G.Σ, G.C_true, G.C_graph, G.C_embedding, G.RAND
 					gated_GMM_score = sigmoid_w95(G.GMM_score, -5, 10)
@@ -106,12 +126,11 @@ class Plotter:
 								c=Z if mode=='Truth' else Z_hat,
 								cmap='bwr' if mode=='Truth' else ListedColormap(["deepskyblue","hotpink"]),
 								marker='.',
-								alpha=0.2 + (1 - u) * 0.4)
+								alpha=0.2 + (1 - u) * 0.4 if show_stats else 0.2)
 					
 					ax.set_xticks([])
 					ax.set_yticks([])
 
-					ax.set_facecolor(facecolor)
 					if ellipse:
 						for mean, cov in zip(M, Σ):
 							eigenvalues, eigenvectors = np.linalg.eigh(cov)
@@ -123,26 +142,36 @@ class Plotter:
 							ax.add_patch(ellip)
 					Π_hat = list(np.sort(np.diag(G.Π_hat)).round(2))
 					stats = [f"RI:  {RAND:.2f}",
-			  				 f"ΠẐ: {Π_hat}",
+							 f"ΠẐ: {Π_hat}",
 							 f"GS:  {G.GMM_score:.2f}",
-			  				 f"CT:  {C_true:.5f}",
+							 f"CT:  {C_true:.5f}",
 							 f"CG: {C_graph:.5f}",
 							 f"CE: {C_embedding:.5f}"]
 					if q_outliers > 0:
-						stats.append(f"Out-masking: {int(q_outliers*100)}%")
+						stats.append(f'\n{q_outliers*100:.1f}% X outside')
 					for stat in stats:
 						ax.plot([], [], ' ', label=stat, linestyle = None, marker = "")
-					ax.legend(
-						loc="upper left",
-						fontsize=8,
-						handlelength=0,
-						handletextpad=0,
-					)
+					if show_stats:
+						ax.set_facecolor(facecolor)
+						leg = ax.legend(
+							loc="upper left",
+							fontsize=8,
+							handlelength=0,
+							handletextpad=0,
+						)
+						for txt in leg.get_texts():
+							s = txt.get_text()
+							if (j == j_ct and s.startswith("CT:")) or (j == j_cg and s.startswith("CG:")) or (j == j_ce and s.startswith("CE:")):
+								txt.set_fontweight("bold")
+
 					if i == 0:
 						ax.set_title(G.transform_name + "\n", fontsize=12)
 			plt.tight_layout()
 			rho_str, pi_str = float_to_str(rho), float_to_str(pi)
-			self.save_file(f'Embeddings/{subfolder}', f'{rho_str}_{pi_str}', dpi=400)
+			mode_str = "" if mode == 'Truth' else f"_pred"
+			ellipse_str = "" if ellipse else "_no_ellipse"
+			show_stats_str = "" if show_stats else "_no_stats"
+			self.save_file(f'Embeddings/{subfolder}', f'{pi_str}_{rho_str}{mode_str}{ellipse_str}{show_stats_str}', dpi=400)
 
 		switch(mode)
 
@@ -409,10 +438,9 @@ class Plotter:
 		cols = ['Arg', 'Rand', 'Regret']
 
 		fig, axes = plt.subplots(len(chernoffs), 3, figsize=(16, 5*len(chernoffs)), gridspec_kw={'width_ratios': [0.8, 1, 1]})
-		fig.suptitle(
-			f"Best‑Transform Metrics on Model: {model.name}\n" + model_str(n, rho, pi),
-			fontsize=14
-		)
+		global_title = f"Best‑Transform Metrics on Model: {model.name}\n" + model_str(n, rho, pi)
+		if self.eps: global_title = empty_string_except(global_title)
+		fig.suptitle(global_title, fontsize=14)
 
 		for i, C in enumerate(chernoffs):
 			for j, col in enumerate(cols):
@@ -426,28 +454,30 @@ class Plotter:
 					ax.pcolormesh(grid, cmap = cmap, norm = norm, shading='auto')
 					area_map = dict(zip(transforms, metrics[f'{C}-Best Transform']['Transform Area']))
 					sorted_TRANSFORMS = sorted(transforms, key=lambda t: area_map[t], reverse=True)
+					sorted_TRANSFORMS = filter(lambda t: area_map[t] > 0.015, sorted_TRANSFORMS)
 					handles = [Patch(facecolor=TRANSFORMS_CMAP[t], label=f'{t.id}: {area_map[t]:.2f}') 
-							for t in sorted_TRANSFORMS if area_map[t] > 0]
+							for t in sorted_TRANSFORMS]
 					ax.legend(title = 'Transforms: Area',
 						handles=handles, loc="upper left", handlelength=1, handleheight=1)
 				elif col == 'Rand':
 					norm = colors.Normalize(vmin=0, vmax=1, clip=True)
 					sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Reds')
 
-					mean_rand_transforms_map = {t: np.mean(metrics[t]['Rand']) for t in transforms}
-					mean_rand_transforms_map[C] = metrics[f'{C}-Best Transform']['Rand Avg']
-					case = lambda t : t.id if t in transforms else t
-					sorted_TRANSFORMS = sorted(transforms + [C], key=lambda t: mean_rand_transforms_map[t], reverse=True)
-					handles = [Patch(facecolor=CMAP[t], label=f"{case(t).replace('_', ' ')}: {mean_rand_transforms_map[t]:.2f}") 
-							for t in sorted_TRANSFORMS]
-					ax.legend(title = 'Transforms: Avg(Rand)}', handles=handles, loc="upper left", handlelength=1, handleheight=1)
+					#mean_rand_transforms_map = {t: metrics[t]['Rand Avg'] for t in transforms}
+					#mean_rand_transforms_map[C] = metrics[f'{C}-Best Transform']['Rand Avg']
+					#case = lambda t : t.id if t in transforms else t
+					#sorted_TRANSFORMS = sorted(transforms + [C], key=lambda t: mean_rand_transforms_map[t], reverse=True)
+					#handles = [Patch(facecolor=CMAP[t], label=f"{case(t).replace('_', ' ')}: {mean_rand_transforms_map[t]:.2f}") 
+					#		for t in sorted_TRANSFORMS]
+					handles = [Patch(facecolor=CMAP[C], label=f"{C.replace('_', ' ')} : {metrics[f'{C}-Best Transform']['Rand Avg']:.2f}     ")]
+					ax.legend(title = 'Transforms: Avg(Rand)', handles=handles, loc="upper left", handlelength=1, handleheight=1)
 
 				else:
 					norm = colors.Normalize(vmin=0, vmax=1, clip=True)
 					sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Purples')
-					avg_regret = f"Avg(Reg) = {metrics[f'{C}-Best Transform']['Regret Avg']:.2f}"
-					area_positive_r = f"Area(Reg>0) = {metrics[f'{C}-Best Transform']['Regret Area']:.2f}"
-					avg_positive_r = f"Avg(Reg[Reg>0]) = {metrics[f'{C}-Best Transform']['Regret Avg on Positive Regret']:.2f}"
+					avg_regret =		f"Avg(Reg)              = {metrics[f'{C}-Best Transform']['Regret Avg']:.2f}"
+					area_positive_r = 	f"Area(Reg>0)        = {metrics[f'{C}-Best Transform']['Regret Area']:.2f}"
+					avg_positive_r = 	f"Avg(Reg[Reg>0]) = {metrics[f'{C}-Best Transform']['Regret Avg on Positive Regret']:.2f}"
 
 					handle_avg = mpatches.Patch(facecolor='none', edgecolor='none', label=avg_regret)
 					handle_area = mpatches.Patch(facecolor='none', edgecolor='none', label=area_positive_r)
@@ -478,19 +508,129 @@ class Plotter:
 		plt.tight_layout()
 		rho_str, pi_str = float_to_str(rho), float_to_str(pi)
 		gated_str = '_gated' if gated else ''
-		self.save_file(f'Best_Transform/{model.name}Heatmaps', f'{model.name}_{pi_str}_{rho_str}{gated_str}', dpi=400)
+		self.save_file(f'Best_Transform/{model.name}', f'{model.name}_{pi_str}_{rho_str}{gated_str}', dpi=400)
+
+
+	def plot_best_transform_scatter_rand_vs_regretratio(self, rho, pi, model, metrics, transforms=None):
+		if transforms is None:
+			transforms = TRANSFORMS_EXT.copy()
+
+		fig, ax = plt.subplots(figsize=(8, 7))
+
+		# --- Plot base transforms ---
+		base_handles = []
+		for t in transforms:
+			x = 1 - metrics[t]['Regret Area']
+			y = metrics[t]['Rand Avg']
+			h = ax.scatter(
+				x, y,
+				marker='x', s=50,
+				color=CMAP[t],
+				label=getattr(t, 'id', str(t)).replace('_', ' ')
+			)
+			base_handles.append(h)
+
+		# --- Plot non-gated Chernoff ---
+		chernoffs_handles = []
+		for t in NON_GATED_CHERNOFFS_ID:
+			key = f"{t}-Best Transform"
+			x = 1 - metrics[key]['Regret Area']
+			y = metrics[key]['Rand Avg']
+			h = ax.scatter(
+				x, y,
+				marker='s', s=80,
+				color=CMAP[t], edgecolor=CMAP[t],
+				linewidth=0,
+				label=t.replace('_', ' ') + f":\n{y:.3f}, {x:.2f}"
+			)
+			chernoffs_handles.append((h, y))
+
+		# --- Plot gated Chernoff ---
+		for t in GATED_CHERNOFFS_ID:
+			key = f"{t}-Best Transform"
+			x = 1 - metrics[key]['Regret Area']
+			y = metrics[key]['Rand Avg']
+			h = ax.scatter(
+				x, y,
+				marker='s', s=80,
+				color=CMAP[t[1:]], edgecolor='k',
+				linewidth=2,
+				label=t.replace('_', ' ') + f":\n{y:.3f}, {x:.2f}"
+			)
+			chernoffs_handles.append((h, y))
+
+		# Styling axes
+		ax.set_xlabel('Null Regret Ratio', fontsize=12)
+		ax.set_ylabel('Rand Avg',              fontsize=12)
+		if rho is not None and pi is not None:
+			global_title = f"Transforms Rand Avg vs Null Regret Ratio on Model:\n{model.name} " + model_str(n, rho, pi)[:-1]
+		else:
+			global_title = f"Transforms Rand Avg vs Null Regret Ratio on {model.name} Model\n"
+		if self.eps: global_title = empty_string_except(global_title)
+		ax.set_title(global_title, fontsize=14)
+		ax.set_xlim(-0.05, 1.0)
+		ax.set_ylim(-0.05, 1.0)
+		ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.7)
+
+		y = np.mean(metrics['Rand Max'])
+		ax.axhline(y=y, color='k', linestyle='--')
+		ax.text(
+			0.5, y+0.05,
+			f"Avg(Rand Max): {y:.2f}",
+			transform=ax.get_xaxis_transform(),
+			va='center', ha='center'
+		)
+
+		# --- First legend: base transforms (bottom right) ---
+		leg1 = ax.legend(
+			handles=base_handles,
+			title="Transforms:",
+			loc="lower right",
+			frameon=True,
+			bbox_to_anchor=(0.8, 0, 0.2, 1),
+			mode='expand',
+		)
+		ax.add_artist(leg1)
+
+		chernoffs_handles = sorted(chernoffs_handles, key=lambda hy: hy[1], reverse=True)
+		sorted_handles = [h for h, _ in chernoffs_handles]
+		sorted_labels  = [h.get_label() for h in sorted_handles]
+
+		# --- Second legend: Chernoffs (upper right) ---
+		leg2 = ax.legend(
+			handles=sorted_handles,
+			labels=sorted_labels,
+			title="t-Argmax ( C... ):\nRand Avg, NRR",
+			loc="lower right",
+			frameon=True,
+			bbox_to_anchor=(0.609, 0, 0.2, 1),
+			mode='expand',
+		)
+
+		plt.tight_layout()
+		if rho is not None and pi is not None:
+			rho_str, pi_str = float_to_str(rho), float_to_str(pi)
+			self.save_file(f'Best_Transform/{model.name}', f'{model.name}_{pi_str}_{rho_str}_NRR', dpi=400)
+		else:
+			self.save_file(f'Best_Transform/{model.name}_Aggregated', f'{model.name}__Rand_vs_NoRegretRatio', dpi=400)
+
 
 	def modulable_bar_plots(self, ax, L, fontsize=10):
 		x_offset = 0
 		x_centers = []
 
 		for tuple in L:
-			space_0 = tuple[0][-1]
+			space_0 = tuple[0][-1] if len(tuple[0]) == 7 else tuple[0][-2]
 			x_offset_start = x_offset + space_0
-			for area, height, height_2, text, text_2, color, space in tuple:
+			for tup in tuple:
+				if len(tup) == 7:
+					area, height, height_2, text, text_2, color, space = tup
+					linewidth = 0
+				elif len(tup) == 8:
+					area, height, height_2, text, text_2, color, space, linewidth = tup
 				x_offset += space
-				ax.bar(x_offset, height, width=area, color=color, align='edge')
-				ax.bar(x_offset, height_2, width=area, bottom=height, color='grey', align='edge')
+				ax.bar(x_offset, height, width=area, color=color, align='edge', linewidth=linewidth, edgecolor = 'black')
+				ax.bar(x_offset, height_2, width=area, bottom=height, color='grey', align='edge', linewidth=linewidth, edgecolor = 'black')
 				ax.text(x_offset + area/2, height/2, str(text), ha='center', va='center', fontsize=fontsize)
 				ax.text(x_offset + area/2, height + height_2/2, str(text_2), ha='center', va='center', fontsize=fontsize)
 				x_offset += area
@@ -528,7 +668,8 @@ class Plotter:
 				#f"{m['Regret Avg']:.2f}",
 				"",
 				color_helper(t), 
-				0.1),) for t, m in m_transforms.items()]
+				0.1, 
+				1.5 if isinstance(t, str) and t.startswith('gC') else 0),) for t, m in m_transforms.items()]
 		elif mode == 'With regret':
 			L1 = [(1 - m['Regret Area'],
 				m['Rand Avg on Null Regret'],
@@ -537,7 +678,8 @@ class Plotter:
 				"",
 				"",
 				color_helper(t),
-				0.1) for t, m in m_transforms.items()]
+				0.1,
+				1 if isinstance(t, str) and t.startswith('gC') else 0) for t, m in m_transforms.items()]
 			L2 = [(m['Regret Area'],
 				m['Rand Avg on Positive Regret'],
 				m['Regret Avg on Positive Regret'],
@@ -545,7 +687,8 @@ class Plotter:
 				#f"{m['Regret Avg on Positive Regret']:.2f}",
 				"", "",
 				color_helper(t),
-				0.025) for t, m in m_transforms.items()]
+				0.025,
+				1 if isinstance(t, str) and t.startswith('gC') else 0) for t, m in m_transforms.items()]
 
 			L = zip(L1, L2)
 
@@ -573,7 +716,7 @@ class Plotter:
 		ax.set_xlim(-0.25, x_offset+0.25)
 		
 		if mode == 'No regret':
-			ax.set_title(f'Transformations Average Rand & Regret (on {model.name} Model)\n')
+			ax.set_title(f'Transformations Average Rand & Regret on {model.name} Model\n')
 			Avg_Rand_Max = np.mean(metrics_g['Rand Max'])
 			ax.hlines(Avg_Rand_Max, 0, 
 					x_offset, color='black', lw=1, label=f'Avg(Rand Max): {Avg_Rand_Max:.4f}', linestyle='--')
@@ -582,7 +725,7 @@ class Plotter:
 			ax.set_xlabel('\nTransformations')
 
 		if mode == 'With regret':
-			ax.set_title(f'Transformations Average Rand & Regret (on {model.name} Model)\nConditioned on Null Regret vs Positive Regret\n')
+			ax.set_title(f'Transformations Average Rand & Regret on {model.name} Model\nConditioned on Null Regret vs Positive Regret\n')
 			ax.set_xlabel('\n\nTransformations')
 			ax.text(
 				x_offset/2,
@@ -597,7 +740,7 @@ class Plotter:
 
 		mode = 'No_Regret' if mode == 'No regret' else 'With_Regret'
 		plt.tight_layout()
-		self.save_file(f'Best_Transform/{model.name}Rands', f'{name}_Rands_{mode}', dpi=400)
+		self.save_file(f'Best_Transform/{model.name}_Aggregated', f'{model.name}_{name}_Rands_{mode}', dpi=400)
 
 	def plot_transforms_rand_for_best_transform(self, model, metrics_g, chernoff, 
 											 transforms = None):
@@ -644,13 +787,13 @@ class Plotter:
 		ax.set_ylabel('Avg Rand')
 		ax.set_ylim(-0.075, 1.05)
 		ax.set_xlim(-0.05, x_offset+0.05)
-		ax.set_title(f'{CHERNOFFS_ID_COSMETIC_MAP[chernoff]}-Best Transform underlying Transformation Selection\nWith average (on {model.name} Model) Rand, Regret & Selection by Transformation\n')
+		ax.set_title(f'{CHERNOFFS_ID_COSMETIC_MAP[chernoff]}-Best Transform underlying Transformation Selection\nWith average, on {model.name} Model, Rand, Regret & Selection by Transformation\n')
 
 		ax.legend(handles=[mpatches.Patch(color='grey', label='Rand Regret')], loc='upper right', fontsize=8)
 
 		plt.tight_layout()
 		chernoff = chernoff[1:] + '_g' if chernoff.startswith('g') else chernoff
-		self.save_file(f'Best_Transform/{model.name}Rands', f'Best_Transform_Transforms_Rands_{chernoff}', dpi=400)
+		self.save_file(f'Best_Transform/{model.name}_Aggregated', f'{model.name}_Best_Transform_Transforms_Rands_{chernoff}', dpi=400)
 
 	def plot_rand_by_sigmoid_params_model_wise(self, C, best_rand_avg):
 		models = MODELS.copy()
@@ -770,7 +913,9 @@ class Plotter:
 		bax.set_xlim(-15.5, 5.5)
 		bax.set_xticks([-15, -10, -5, 0, 5])
 		bax.set_ylabel('Rand Avg\n')
-		bax.set_title(f"Rand Avg for Sigmoid(s₀,w)(GMM-score)-Gated {CHERNOFFS_ID_COSMETIC_MAP[C[1:]]}\n")
+		global_title = f"Rand Avg for Sigmoid(s₀,w)(GMM-score)-Gated {CHERNOFFS_ID_COSMETIC_MAP[C[1:]]}\n"
+		if self.eps: global_title = empty_string_except(global_title)
+		bax.set_title(global_title)
 
 		self.save_file(f'Sigmoid_Params_Optimization', f'{C}_model_wise', dpi=400)
 
@@ -872,10 +1017,468 @@ class Plotter:
 		ax.set_xlim(-15.5, 5.5)
 		ax.set_xlabel('s₀')
 		ax.set_ylabel('Rand Avg\n')
-		ax.set_title(
-			f"Rand Avg for Sigmoid(s₀,w)(GMM-score)-Gated "
-			f"{CHERNOFFS_ID_COSMETIC_MAP[C[1:]]}\n"
-		)
+		global_title = f"Rand Avg for Sigmoid(s₀,w)(GMM-score)-Gated {CHERNOFFS_ID_COSMETIC_MAP[C[1:]]}\n"
+		if self.eps: global_title = empty_string_except(global_title)
+		ax.set_title(global_title)
 
 		plt.tight_layout()
 		self.save_file(f'Sigmoid_Params_Optimization', f'{C}_grouped', dpi=400)
+
+
+#################################################################
+
+
+	def plot_metrics_for_varying_param(self, model = betaWSBM,
+									t = PowerTransform(1),
+									varying_param = 'rho',
+									varying_param_bounds = (0, 0.5),
+									h = np.array([1/4, 1/2, 1/4])):
+		
+		try:
+			if issubclass(varying_param, WeightTransform):
+				assert isinstance(t, varying_param), "t must be of the same type as varying_param"
+		except TypeError:
+			assert isinstance(varying_param, str), "varying_param must be a string or a WeightTransform subclass"
+
+		if varying_param == 'rho':
+			varying_param_label_str = 'ρ'
+		elif varying_param == 'pi':
+			varying_param_label_str = 'π₁'
+		elif varying_param == 'p11':
+			varying_param_label_str = f'{model.param_name}{sub("11")}'
+		elif varying_param == 'p12':
+			varying_param_label_str = f'{model.param_name}{sub("12")}'
+		elif issubclass(varying_param, WeightTransform):
+			varying_param_label_str = f'({t.__class__.__name__} {t.param_name})'
+		else:
+			raise ValueError(f"Unknown varying_param: {varying_param}")
+			
+		varying_param_str = varying_param if isinstance(varying_param, str) else varying_param.__name__
+		name = f'{model.name}_{t.id}_{varying_param_str}_{varying_param_bounds[0]}_{varying_param_bounds[1]}'
+		path = f"Computation/data_for_gifs"
+		dico = load(f"{path}/{name}.joblib")
+		
+		metrics = dico['metrics']
+		N = len(metrics['Rand']['mean'])
+		params = np.linspace(*varying_param_bounds, N)
+		idxs = np.arange(0, N, N // 10)
+
+		rho = dico['fixed_params']['rho']
+		pi  = dico['fixed_params']['pi']
+		p11 = dico['fixed_params']['p11']
+		p12 = dico['fixed_params']['p12']
+
+		n_top = 4  # <-- set this to however many cells you want in the top row
+		fig   = plt.figure(figsize=(12, 8))
+		outer = gridspec.GridSpec(3, 1, height_ratios=[1, 10, 10], figure=fig)
+		global_title = f"{varying_param_label_str}-induced changes in\n Clustering Metrics and Chernoff Informations"
+		if self.eps: global_title = empty_string_except(global_title)
+		fig.suptitle(global_title, fontsize=18)
+
+		# top row of arbitrary length
+		top_gs   = outer[0].subgridspec(1, n_top)
+		axes_top = [fig.add_subplot(top_gs[0, i]) for i in range(n_top)]
+
+		# re–define your 2×2 bottom grid
+		bottom_gs = outer[1:].subgridspec(2, 2)
+		axes = np.array([[fig.add_subplot(bottom_gs[i, j]) for j in range(2)]
+						for i in range(2)])
+
+		ax = axes_top[0]
+		ax.axis('off')
+		ax.text(0.5, 0.5, f"Model: {model.model_name_with_law_params()}\nn = {1000}, K = {2}", 
+			ha='center', va='center', fontsize=12)
+
+		ax = axes_top[1]
+		ax.axis('off')
+		varying = None
+		if varying_param == 'p11': varying = (0, 0)
+		if varying_param == 'p12': varying = (0, 1)
+		ax.text(
+			0.5, 0.5, 
+			model.param_matrix_str(np.array([[p11, p12], [p12, model.p22_fixed]]), varying),
+			ha='center', va='center',
+			fontsize=10,
+		)
+
+		ax = axes_top[2]
+		ax.axis('off')
+		rho_str = 'ρ' if varying_param == 'rho' else f'{rho:.2f}'
+		pi_str  = 'π₁' if varying_param == 'pi' else f'{pi:.2f}'
+		ax.text(0.5, 0.5, f"ρ = {rho_str}\nπ₁ = {pi_str}", ha='center', va='center', fontsize=12)
+
+		ax = axes_top[3]
+		ax.axis('off')
+		tr_str = t.name if isinstance(varying_param, str) else t.name.split("=", 1)[0] + f"= {t.param_name})"
+		ax.text(0.5, 0.5, f"Transformation:\n{tr_str}", ha='center', va='center', fontsize=12)
+
+		# 1) Rand Index
+		ax = axes[0, 0]
+		mean = convolve1d(metrics['Rand']['mean'], h, mode='reflect')
+		std  = metrics['Rand']['std']
+		ax.plot(params, mean, color = 'red')
+		ax.errorbar(params[idxs], mean[idxs], yerr=std[idxs], fmt='none', capsize=0, color = 'red')
+		ax.set_ylim(-0.1, 1.05)
+		ax.set_yticks(np.linspace(0, 1, 6))
+		ax.set_title('Rand Index')
+		ax.set_ylabel('Rand')
+
+		# 2)
+		ax = axes[0, 1]
+		for key in ['C_true', 'C_graph', 'C_embed']:
+			mean = convolve1d(metrics[key]['mean'], h, mode='reflect')
+			std  = metrics[key]['std']
+			ax.plot(params, mean, label=key.replace('_', ' '), color = CHERNOFFS_CMAP[key])
+			if key != 'C_true':
+				shift = -1 if key == 'C_graph' else 1
+				ax.errorbar(params[idxs + shift], mean[idxs + shift], 
+				yerr=std[idxs + shift], fmt='none', capsize=0, color = CHERNOFFS_CMAP[key])
+		ax.set_title('Chernoff Informations')
+		max_c = np.max(np.concatenate([metrics[key]['mean'] for key in ['C_true', 'C_graph', 'C_embed']]))
+
+		def round_to_25_two_sig(x):
+			if x == 0:
+				return 0.0
+			sign  = -1 if x < 0 else 1
+			y     = abs(x)
+			exp   = math.floor(math.log10(y))
+			shift = 1 - exp
+			s     = y * 10**shift
+			s_r   = (math.ceil if sign > 0 else math.floor)(s / 25) * 25
+			return sign * s_r / 10**shift
+		
+		max_c = round_to_25_two_sig(max_c)
+		ax.set_ylim(-0.05*max_c, 1.05*max_c)
+		ax.set_yticks(np.linspace(0, max_c, 6))
+		ax.set_ylabel('C')
+		ax.legend()
+
+		# 3) GMM Score
+		ax = axes[1, 0]
+		mean = convolve1d(metrics['GMM_score']['mean'], h, mode='reflect')
+		std  = metrics['GMM_score']['std']
+		ax.plot(params, mean, color = 'green')
+		ax.errorbar(params[idxs], mean[idxs], yerr=std[idxs], fmt='none', capsize=0, color = 'green')
+		ax.set_title('GMM Score')
+		ax.set_ylim(-0.25, 5.25)
+		ax.set_yticks(np.linspace(0, 5, 6))
+		ax.set_ylabel('Score')
+
+		# 4) π₁ Estimate
+		ax = axes[1, 1]
+		mean = convolve1d(metrics['pi_1']['mean'], h, mode='reflect')
+		std  = metrics['pi_1']['std']
+		ax.plot(params, mean, color = 'black')
+		ax.errorbar(params[idxs], mean[idxs], yerr=std[idxs], fmt='none', capsize=0, color = 'black')
+		ax.set_title('Estimated π₁')
+		ax.set_ylim(-0.025, 0.525)
+		ax.set_yticks(np.linspace(0, 0.5, 6))
+		ax.set_ylabel('Estimated π₁')
+		if varying_param == 'pi':
+			ax.plot(params, params, color = 'black', linestyle='--', label='True π₁')
+		else:
+			ax.plot(params, [pi] * N, color = 'black', linestyle='--', label='True π₁')
+		ax.legend()
+
+		for ax in axes.flat:
+			labelpad_shift = 0
+			if not isinstance(varying_param, str) and issubclass(varying_param, WeightTransform):
+				varying_param_label_str = t.param_name
+				if varying_param == PowerTransform:
+					ax.set_xticks(np.linspace(*varying_param_bounds, 7))
+					labelpad_shift = 1.5
+			ax.set_xlabel(varying_param_label_str, labelpad=-2.5 + labelpad_shift)
+			
+
+		plt.tight_layout()
+		self.save_file(f'Metrics_Varying_Params', f'{name}', dpi=400)
+
+	def plot_embedding_for_varying_param(self, n, dico,
+								   model = betaWSBM,
+								   t = PowerTransform(1),
+								   varying_param = 'rho',
+								   varying_param_bounds = (0, 0.5),
+								   shift_factor_x = 0, shift_factor_y = 0,
+								   scaling_factor_x = 1, scaling_factor_y = 1):
+	
+		try:
+			if issubclass(varying_param, WeightTransform):
+				assert isinstance(t, varying_param), "t must be of the same type as varying_param"
+		except TypeError:
+			assert isinstance(varying_param, str), "varying_param must be a string or a WeightTransform subclass"
+
+		if varying_param == 'rho':
+			varying_param_label_str = 'ρ'
+		elif varying_param == 'pi':
+			varying_param_label_str = 'π₁'
+		elif varying_param == 'p11':
+			varying_param_label_str = f'{model.param_name}{sub("11")}'
+		elif varying_param == 'p12':
+			varying_param_label_str = f'{model.param_name}{sub("12")}'
+		elif issubclass(varying_param, WeightTransform):
+			varying_param_label_str = f'({t.__class__.__name__} {t.param_name})'
+		else:
+			raise ValueError(f"Unknown varying_param: {varying_param}")
+		
+		metrics = dico['metrics']
+		embedding_metrics = dico['displayed_graphs_metrics']
+		N = len(metrics['Rand']['mean'])
+		params = np.linspace(*varying_param_bounds, N)
+
+		rho = dico['fixed_params']['rho']
+		pi  = dico['fixed_params']['pi']
+		p11 = dico['fixed_params']['p11']
+		p12 = dico['fixed_params']['p12']
+
+		fig = plt.figure(figsize=np.array([13, 8])*1.25)
+		fig.suptitle(f"{varying_param_label_str}-induced changes in the Embeddings, Clustering Metrics and Chernoff Informations", fontsize=18)
+
+		outer = gridspec.GridSpec(6, 2,
+			width_ratios=[5, 2.25],
+			height_ratios=[1, 1, 5, 5, 5, 5],
+			figure=fig,
+			wspace=0.05
+		)
+
+		# 1) Big plot on the left spanning all rows
+		ax_big = fig.add_subplot(outer[:, 0])
+
+		# 2) Top-right: 2×2 grid
+		top_right_gs = outer[0:2, 1].subgridspec(2, 2, wspace=0.2)
+		axes_top = [fig.add_subplot(top_right_gs[i, j]) for i in range(2) for j in range(2)]
+
+		# 3) Bottom-right: 4 stacked rows
+		bottom_right_gs = outer[2:, 1].subgridspec(4, 1)
+		axes_bottom = [fig.add_subplot(bottom_right_gs[i, 0])for i in range(4)]
+
+		ax = axes_top[0]
+		ax.axis('off')
+		ax.text(0.5, 0.5, f"Model: {model.model_name_with_law_params()}\nn = {1000}, K = {2}", 
+			ha='center', va='center', fontsize=12)
+
+		ax = axes_top[2]
+		ax.axis('off')
+		varying = None
+		if varying_param == 'p11': varying = (0, 0)
+		if varying_param == 'p12': varying = (0, 1)
+		ax.text(
+			0.5, 0.5, 
+			model.param_matrix_str(np.array([[p11, p12], [p12, model.p22_fixed]]), varying),
+			ha='center', va='center',
+			fontsize=11,
+		)
+
+		ax = axes_top[3]
+		ax.axis('off')
+		rho_str = 'ρ' if varying_param == 'rho' else f'{rho:.2f}'
+		pi_str  = 'π₁' if varying_param == 'pi' else f'{pi:.2f}'
+		ax.text(0.5, 0.5, f"ρ = {rho_str}\nπ₁ = {pi_str}", ha='center', va='center', fontsize=12)
+
+		ax = axes_top[1]
+		ax.axis('off')
+		tr_str = t.name if isinstance(varying_param, str) else t.name.split("=", 1)[0] + f"= {t.param_name})"
+		ax.text(0.5, 0.5, f"Transformation:\n{tr_str}", ha='center', va='center', fontsize=12)
+
+		ax = ax_big
+		G = dico['graphs'][n]
+		X, Z, M, Σ = G['X'], G['Z'], G['M'], G['Σ']
+
+		if n > 0:
+			X_prev = dico['graphs'][n-1]['X']
+			#X_centered, X_prev_centered = X - X.mean(axis=0), X_prev - X_prev.mean(axis=0)
+			#R, _ = orthogonal_procrustes(X_centered, X_prev_centered)
+			#X = X_centered @ R.T + X_prev.mean(axis=0)
+
+			d0 = np.mean( np.linalg.norm(X - X_prev, axis=1))
+			X_flipped = X * np.array([-1, 1])
+			d1 = np.mean( np.linalg.norm(X_flipped - X_prev, axis=1))
+			if d1 < d0:
+				X = X_flipped
+				M = M * np.array([-1, 1])
+				Σ = np.diag([-1, 1]) @ Σ @ np.diag([-1, 1])
+				dico['graphs'][n]['X'] = X
+
+		ax.scatter(X[:, 0], X[:, 1], c=Z, cmap='bwr', marker='.', alpha=0.5)
+		ax.set_xticks([])
+		ax.set_yticks([])
+		ref_window  = np.array(dico['embedding_ref_window'])
+		shift		= ref_window * np.array([shift_factor_x, shift_factor_y])
+		scaling 	= np.stack([-ref_window, ref_window]) / 2 * np.array([scaling_factor_x, scaling_factor_y])
+		limits  	= X.mean(axis=0) + scaling + shift
+		x_limits, y_limits = limits[:, 0], limits[:, 1]
+		xmin, xmax, ymin, ymax = x_limits[0], x_limits[1], y_limits[0], y_limits[1]
+		ax.set_xlim(x_limits)
+		ax.set_ylim(y_limits)
+
+		def plot_embedding_metrics(ax, m_id, label, color):
+			ax.plot(params[:n+1], embedding_metrics[m_id][:n+1], color = color, linewidth=1, label=label)
+			ax.plot(params[n], embedding_metrics[m_id][n], marker='o', color=color, markersize=4)
+
+		for mean, cov in zip(M, Σ):
+			eigenvalues, eigenvectors = np.linalg.eigh(cov)
+			angle = np.degrees(np.arctan2(eigenvectors[0, 1], eigenvectors[0, 0]))
+			width, height = 2 * np.sqrt(6 * eigenvalues)
+			ellip = plt.matplotlib.patches.Ellipse(
+				mean, width, height, angle=angle, edgecolor='k', facecolor='none', linestyle='solid'
+			)
+			ax.add_patch(ellip)
+
+		# 1) Rand Index
+		ax = axes_bottom[0]
+		ax.plot(params, metrics['Rand']['mean'], color = 'red', linewidth=0.5, alpha=0.5)
+		plot_embedding_metrics(ax, 'Rand', 'Rand', 'red')
+		ax.set_ylim(-0.1, 1.05)
+		ax.set_yticks(np.linspace(0, 1, 6))
+
+		ax = axes_bottom[1]
+		for key in ['C_true', 'C_graph', 'C_embed']:
+			ax.plot(params, metrics[key]['mean'], color = CHERNOFFS_CMAP[key], linewidth=0.5, alpha=0.5)
+			plot_embedding_metrics(ax, key, key.replace('_', ' '), CHERNOFFS_CMAP[key])
+		max_c = np.max(np.concatenate([metrics[key]['mean'] for key in ['C_true', 'C_graph', 'C_embed']]))
+
+		def round_to_25_two_sig(x):
+			if x == 0:
+				return 0.0
+			sign  = -1 if x < 0 else 1
+			y     = abs(x)
+			exp   = math.floor(math.log10(y))
+			shift = 1 - exp
+			s     = y * 10**shift
+			s_r   = (math.ceil if sign > 0 else math.floor)(s / 25) * 25
+			return sign * s_r / 10**shift
+		
+		max_c = round_to_25_two_sig(max_c)
+		ax.set_ylim(-0.05*max_c, 1.05*max_c)
+		ax.set_yticks(np.linspace(0, max_c, 6))
+
+		# 3) GMM Score
+		ax = axes_bottom[2]
+		ax.plot(params, metrics['GMM_score']['mean'], color = 'green', linewidth=0.5, alpha=0.5)
+		plot_embedding_metrics(ax, 'GMM_score', 'GMM Score', 'green')
+		ax.set_ylim(-0.25, 5.25)
+		ax.set_yticks(np.linspace(0, 5, 6))
+
+		# 4) π₁ Estimate
+		ax = axes_bottom[3]
+		ax.plot(params, metrics['pi_1']['mean'], color = 'black', linewidth=0.5, alpha=0.5)
+		plot_embedding_metrics(ax, 'pi_1', 'Estimated π₁', 'black')
+		ax.set_ylim(-0.025, 0.525)
+		ax.set_yticks(np.linspace(0, 0.5, 6))
+		if varying_param == 'pi':
+			ax.plot(params, params, color = 'black', linestyle='--', label='True π₁', linewidth=0.5)
+		else:
+			ax.plot(params, [pi] * N, color = 'black', linestyle='--', label='True π₁', linewidth=0.5)
+
+		for ax in axes_bottom[-1:]:
+			if not isinstance(varying_param, str) and issubclass(varying_param, WeightTransform):
+				varying_param_label_str = t.param_name
+				if varying_param == PowerTransform:
+					ax.set_xticks(np.linspace(*varying_param_bounds, 7))
+			ax.set_xlabel(varying_param_label_str)
+			ax.yaxis.set_ticks_position('right')
+			ax.legend(loc='lower right', fontsize=8)
+		for ax in axes_bottom[:-1]:
+			ax.set_xticks([])
+			ax.yaxis.set_ticks_position('right')
+			ax.legend(loc='lower right', fontsize=8)
+
+		mask_out = (X[:, 0] < xmin) | (X[:, 0] > xmax) | (X[:, 1] < ymin) | (X[:, 1] > ymax)
+		percentage_out = mask_out.sum() / X.shape[0] * 100
+
+		Π_hat = list(np.sort(np.diag(G['Π_hat'])).round(2))
+		stats = [f"\nRI:   {G['Rand']:.2f}",
+					f"ΠẐ: {Π_hat}",
+					f"GS: {G['GMM_score']:.2f}",
+					f"CT:  {G['C_true']:.5f}",
+					f"CG: {G['C_graph']:.5f}",
+					f"CE:  {G['C_embed']:.5f}",
+					f'\n{percentage_out:.1f}% X outside']
+		
+		for stat in stats: ax_big.plot([], [], linestyle='', marker='', color='none', label=stat, alpha=0)
+		ax_big.legend(
+					loc='upper left',
+					title=f'{varying_param_label_str} = {params[n]:.2f}',
+					title_fontsize=18,
+					handlelength=0,
+					handletextpad=0)
+
+		delta = 0.01   # fraction of figure width to shift right
+		for ax in axes_top:
+			pos = ax.get_position()
+			ax.set_position([
+				pos.x0 + delta,
+				pos.y0,
+				pos.width,
+				pos.height
+			])
+
+		return fig
+	
+	def embedding_gif(self, model = betaWSBM,
+				  t = PowerTransform(1),
+				  varying_param = 'rho',
+				  varying_param_bounds = (0, 0.5),
+				  shift_factor_x = 0, shift_factor_y = 0,
+				  scaling_factor_x = 1, scaling_factor_y = 1):
+		
+		varying_param_str = varying_param if isinstance(varying_param, str) else varying_param.__name__
+		name = f'{model.name}_{t.id}_{varying_param_str}_{varying_param_bounds[0]}_{varying_param_bounds[1]}'
+		path = f"Computation/data_for_gifs"
+		dico = load(f"{path}/{name}.joblib")
+
+		displayed_graphs_metrics = {}
+		for m_id in VANILLA_METRICS_ID + ['pi_1']:
+			displayed_graphs_metrics[m_id] = [G[m_id] for G in dico['graphs']]
+
+		dico['displayed_graphs_metrics'] = displayed_graphs_metrics
+
+		def select_reference_limits(graphs, top_percent=0.1, expand_factor = 1):
+			sorted_graphs = sorted(graphs, key=lambda G: G['Rand'], reverse=True)
+			n_top = max(1, int(len(sorted_graphs) * top_percent))
+			candidates = sorted_graphs[:n_top]
+			centers = []
+			limits = []
+			for G in candidates:
+				X = G['X']
+				centers.append(X.mean(axis=0))
+				fig, ax = plt.subplots()
+				ax.scatter(X[:, 0], X[:, 1], c=G.get('Z', None), cmap='bwr', marker='.', alpha=0.5)
+				xlim = ax.get_xlim()
+				ylim = ax.get_ylim()
+				plt.close(fig)
+				limits.append((xlim, ylim))
+
+			x_min, x_max = np.mean([l[0][0] for l in limits]), np.mean([l[0][1] for l in limits])
+			y_min, y_max = np.mean([l[1][0] for l in limits]), np.mean([l[1][1] for l in limits])
+			dx, dy = (x_max - x_min) * expand_factor, (y_max - y_min) * expand_factor
+			return (dx, dy)
+		
+		dico['embedding_ref_window'] = select_reference_limits(dico['graphs'], top_percent=0.1, expand_factor=1.25)
+
+		filenames = []
+
+		N = len(dico['graphs'])
+		for i in range(0, N, N // 10):
+			fig = self.plot_embedding_for_varying_param(i, dico,
+										model = model,
+										t = t,
+										varying_param = varying_param,
+										varying_param_bounds = varying_param_bounds,
+										shift_factor_x = shift_factor_x, shift_factor_y = shift_factor_y,
+								   		scaling_factor_x = scaling_factor_x, scaling_factor_y = scaling_factor_y)
+			
+			path = f'{self.folder_path}/Embedding_Gifs/Frames'
+			fname = f"frame_{i:03d}.png"
+			Path(path).mkdir(parents=True, exist_ok=True)
+			fig.savefig(f'{path}/{fname}', dpi=200)
+			plt.close(fig)
+			filenames.append(f'{path}/{fname}')
+
+		name = name.replace('.', '')
+		with imageio.get_writer(f'{self.folder_path}/Embedding_Gifs/{name}.gif', mode='I', fps=8) as writer:
+			for fname in filenames:
+				image = imageio.imread(fname)
+				writer.append_data(image)
+
+		for fname in filenames:
+			os.remove(fname)

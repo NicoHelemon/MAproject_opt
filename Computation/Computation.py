@@ -91,6 +91,8 @@ def simulate_in_line_with_one_varying_param(
 	params = np.linspace(*varying_param_bounds, N)
 	emb_mode, p22 = EMB_MODES[0], P22S[0]
 
+	metrics_id = VANILLA_METRICS_ID + ['pi_1']
+
 	def _run_for_vp(vp, rho=rho, pi=pi, p11=p11, p12=p12, t=t):
 		if varying_param == 'rho':
 			rho = vp
@@ -107,30 +109,44 @@ def simulate_in_line_with_one_varying_param(
 
 		m = model(rho, pi, (p11, p12), p22=p22)
 
-		results = []
+		graphs = []
 		for j in range(R):
 			A, Z = m(42+j)
 			G = TWSBMInstance(model = m, transformation = t, A = t(A), Z = Z, emb_mode = emb_mode)
-			results.append(G.to_dict())
-		return results
+			graphs.append(G.to_dict())
+		metrics_for_vp = {m_id : {} for m_id in metrics_id}
+		for m_id in metrics_id:
+			metrics_for_vp[m_id]['mean'] = np.mean([g[m_id] for g in graphs])
+			metrics_for_vp[m_id]['std']  = np.std([g[m_id]  for g in graphs])
+		return (graphs[0], metrics_for_vp)
 
 	n_jobs = max(1, int(os.cpu_count()*3/4))
 	print(f"Using {n_jobs} threads (out of {os.cpu_count()})")
 	all_results = Parallel(n_jobs=n_jobs, backend="loky")(
 		delayed(_run_for_vp)(vp) for vp in tqdm(params, desc="Simulation"))
+	
+	graphs, metrics_for_vps = zip(*all_results)
 
-	graphs = np.array(all_results, dtype=object)
-	metrics = {m_id : {} for m_id in VANILLA_METRICS_ID + ['pi1']}
-	for m_id in VANILLA_METRICS_ID:
-		metrics[m_id]['mean'] = np.array([np.mean([g[m_id] for g in graphs[i]]) for i in range(N)])
-		metrics[m_id]['std']  = np.array([np.std([g[m_id]  for g in graphs[i]]) for i in range(N)])
+	metrics = {m_id : {} for m_id in metrics_id}
+	for m_id in metrics_id:
+		metrics[m_id]['mean'] = np.array([m[m_id]['mean'] for m in metrics_for_vps])
+		metrics[m_id]['std']  = np.array([m[m_id]['std']  for m in metrics_for_vps])
 
+	fixed_params = {
+		'model' : model,
+		'rho'	: rho,
+		'pi'	: pi,
+		'p11'	: p11,
+		'p12'	: p12,
+		't'		: t,
+	}
 	varying_param_str = varying_param if isinstance(varying_param, str) else varying_param.__name__
 	dico = {
+		'fixed_params': fixed_params,
 		'varying_param': varying_param_str,
 		'varying_param_bounds': varying_param_bounds,
 		'metrics': metrics,
-		'graphs': graphs[:, 0],
+		'graphs': graphs,
 	}
 
 	name = f'{model.name}_{t.id}_{varying_param_str}_{varying_param_bounds[0]}_{varying_param_bounds[1]}'

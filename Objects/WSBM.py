@@ -7,7 +7,7 @@ from itertools import product, combinations_with_replacement
 import seaborn as sns
 
 from .Transformations import *
-from Plotting.StringHelper import sub, sup
+from Plotting.StringHelper import sub, sup, fancy_matrix_str
 import time
 
 # Constants I:
@@ -58,11 +58,28 @@ class betaWSBM(WSBM):
 	name = 'Beta'
 	p22_fixed = 1.0
 
-	def instance_name_str(α):
+	β = 1
+
+	def instance_name_str(α, β = β):
 		if α[0, 0] != α[1, 1]:
-			return f'Beta-WSBM:\nα{sub("11")} = {α[0, 0]:.2f}, α{sub("12")} = {α[0, 1]:.2f}, α{sub("22")} = {α[1, 1]:.2f}'
+			return f'Beta-WSBM: β = {β}\nα{sub("11")} = {α[0, 0]:.2f}, α{sub("12")} = {α[0, 1]:.2f}, α{sub("22")} = {α[1, 1]:.2f}'
 		else:
-			return f'Beta-WSBM:\nα{sub("11")} = α{sub("22")} = {α[0, 0]:.2f}, α{sub("12")} = {α[0, 1]:.2f}'
+			return f'Beta-WSBM: β = {β}\nα{sub("11")} = α{sub("22")} = {α[0, 0]:.2f}, α{sub("12")} = {α[0, 1]:.2f}'
+		
+	def param_matrix_str(α, varying=None):
+		arr = [['' for _ in range(α.shape[1])] for _ in range(α.shape[0])]
+		for i in range(α.shape[0]):
+			for j in range(α.shape[1]):
+				p_str = 'α' + sub(f'{i+1}{j+1}')
+				arr[i][j] = f'{p_str} = {α[i, j]:.2f}'
+				if varying is not None and ((i, j) == varying or (j, i) == varying):
+					arr[i][j] = f' {p_str} = {p_str} '
+
+		return fancy_matrix_str(arr)
+
+	@staticmethod
+	def model_name_with_law_params(β = β):
+		return f'{betaWSBM.name}(α, β = {β})'
 
 	def __init__(self, ρ, Π, α, n = n, p22 = 'fixed'):
 		# n: number of nodes
@@ -84,6 +101,7 @@ class betaWSBM(WSBM):
 			raise ValueError("Invalid p22 parameter - must be 'fixed' or 'p11'")
 
 		self.name = betaWSBM.instance_name_str(self.α)
+		self.param_matrix_str = betaWSBM.param_matrix_str(self.α)
 
 	def __call__(self, seed=None):
 		np.random.seed(seed)
@@ -94,7 +112,7 @@ class betaWSBM(WSBM):
 		# Mixture model (1-ρ)δ_0 + ρBeta(α_{Z_i,Z_j}, 1)
 		A = np.zeros((self.n, self.n))
 		drawn_edges_idx = np.random.rand(self.n, self.n) < self.ρ
-		A[drawn_edges_idx] = beta.rvs(self.α[Z_i, Z_j][drawn_edges_idx], 1)
+		A[drawn_edges_idx] = beta.rvs(self.α[Z_i, Z_j][drawn_edges_idx], betaWSBM.β)
 		
 		A = np.triu(A) + np.triu(A, 1).T
 		np.fill_diagonal(A, 0)
@@ -171,6 +189,21 @@ class lognormWSBM(WSBM):
 			return f'Lognorm-WSBM: μ = {μ:.2f}\nσ{sub("11")} = {Σ[0, 0]:.2f}, σ{sub("12")} = {Σ[0, 1]:.2f}, σ{sub("22")} = {Σ[1, 1]:.2f}'
 		else:
 			return f'Lognorm-WSBM: μ = {μ:.2f}\nσ{sub("11")} = σ{sub("22")} = {Σ[0, 0]:.2f}, σ{sub("12")} = {Σ[0, 1]:.2f}'
+		
+	def param_matrix_str(Σ, varying = None):
+		arr = [['' for _ in range(Σ.shape[1])] for _ in range(Σ.shape[0])]
+		for i in range(Σ.shape[0]):
+			for j in range(Σ.shape[1]):
+				p_str = 'σ' + sub(f'{i+1}{j+1}')
+				arr[i][j] = f'{p_str} = {Σ[i, j]:.2f}'
+				if varying is not None and ((i, j) == varying or (j, i) == varying):
+					arr[i][j] = f' {p_str} = {p_str} '
+
+		return fancy_matrix_str(arr)
+	
+	@staticmethod
+	def model_name_with_law_params(μ = μ):
+		return f'{lognormWSBM.name}(μ = {μ:.2f}, σ)'
 
 	def __init__(self, ρ, Π, Σ, n = n, p22 = 'fixed', tail_control = None):
 		# n: number of nodes
@@ -193,6 +226,7 @@ class lognormWSBM(WSBM):
 			raise ValueError("Invalid p22 parameter - must be 'fixed' or 'p11'")
 
 		self.name = lognormWSBM.instance_name_str(self.Σ)
+		self.param_matrix_str = lognormWSBM.param_matrix_str(self.Σ)
 
 	def __call__(self, seed=None):
 		np.random.seed(seed)
@@ -360,7 +394,8 @@ GATING_FUNCTIONS = dict(zip(GATED_CHERNOFFS_ID,
 							 lambda x: sigmoid_w95(x, x0=1, w=0)]))
 CHERNOFFS_ID_COSMETIC_MAP = dict(zip(CHERNOFFS_ID, [''.join([C.split('_')[0], sup(C.split('_')[1])]) for C in CHERNOFFS_ID]))
 METRICS_ID_COSMETIC_MAP = {'Rand' : 'Rand', 'GMM_score' : 'GMM score'} | CHERNOFFS_ID_COSMETIC_MAP
-CHERNOFFS_CMAP = dict(zip(CHERNOFFS_ID, ['yellow', 'gold', 'cyan', 'teal', 'magenta', 'mediumvioletred']))
+#CHERNOFFS_CMAP = dict(zip(CHERNOFFS_ID, ['yellow', 'gold', 'cyan', 'teal', 'magenta', 'mediumvioletred']))
+CHERNOFFS_CMAP = dict(zip(CHERNOFFS_ID, ['gold', 'gold', 'teal', 'teal', 'magenta', 'magenta']))
 
 
 BIASES = ['abs', 'rel', 'log']

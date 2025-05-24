@@ -134,6 +134,7 @@ class QuantileTransform(WeightTransform):
 		self.name = f"Quantile (q = {q})"
 		self.id = f'Q-{int(q*100):02d}'
 		self.q = q
+		self.param_name = 'q'
 		self.color = cmap_pink_red(norm_qtl_q(q))
 
 	def __call__(self, A):
@@ -156,6 +157,7 @@ class PowerTransform(WeightTransform):
 		self.name = f"Power (γ = {γ})"
 		self.id = f'P-{γ:.2f}'
 		self.γ = γ
+		self.param_name = 'γ'
 		self.color = cmap_blue(norm_pow_γ(γ))
 
 	def __call__(self, A):
