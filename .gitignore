@@ -9,3 +9,6 @@ sqrt-scaled_p22_fixed/
 
 # ignore every .cpkl file anywhere in the repo
 *.cpkl
+
+# large data files for gifs
+Computation/data_for_gifs/*.joblib
