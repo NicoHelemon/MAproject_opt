@@ -9,7 +9,8 @@ from matplotlib import colors
 from ipywidgets import interact
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.patches import Patch
-from matplotlib.colors import ListedColormap, BoundaryNorm
+from matplotlib.colors import ListedColormap, BoundaryNorm, PowerNorm
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 import matplotlib.patches as mpatches
 from matplotlib import cm
 from pathlib import Path
@@ -23,9 +24,10 @@ import math
 import matplotlib.gridspec as gridspec
 from joblib import load, dump
 import imageio
+from scipy.stats import gaussian_kde
 import os
 from scipy.ndimage import convolve1d
-
+from moviepy import ImageSequenceClip
 from Objects.WSBM import *
 from .StringHelper import *
 from Computation.ExtraMetrics import partial_correlation
@@ -141,24 +143,29 @@ class Plotter:
 							)
 							ax.add_patch(ellip)
 					Π_hat = list(np.sort(np.diag(G.Π_hat)).round(2))
-					stats = [f"RI:  {RAND:.2f}",
-							 f"ΠẐ: {Π_hat}",
-							 f"GS:  {G.GMM_score:.2f}",
-							 f"CT:  {C_true:.5f}",
-							 f"CG: {C_graph:.5f}",
-							 f"CE: {C_embedding:.5f}"]
-					if q_outliers > 0:
-						stats.append(f'\n{q_outliers*100:.1f}% X outside')
-					for stat in stats:
-						ax.plot([], [], ' ', label=stat, linestyle = None, marker = "")
+					stats = [f"ARI:  {RAND:.2f}",
+							 f"ΠẐ:   {Π_hat}",
+							 f"GS:   {G.GMM_score:.2f}",
+							 f"CT:    {C_true:.5f}",
+							 f"CG:   {C_graph:.5f}",
+							 f"CE:   {C_embedding:.5f}"]
+					#if q_outliers > 0:
+					#	stats.append(f'\n{q_outliers*100:.1f}% X outside')
+					#for stat in stats:
+					#	ax.plot([], [], ' ', label=stat, linestyle = None, marker = "")
 					if show_stats:
 						ax.set_facecolor(facecolor)
+						invisible_handles = [Line2D([], [], color='none') for _ in stats]
 						leg = ax.legend(
+							handles=invisible_handles,
+							labels=stats,
 							loc="upper left",
 							fontsize=8,
 							handlelength=0,
 							handletextpad=0,
 						)
+						for h in invisible_handles:
+							h.set_visible(False)
 						for txt in leg.get_texts():
 							s = txt.get_text()
 							if (j == j_ct and s.startswith("CT:")) or (j == j_cg and s.startswith("CG:")) or (j == j_ce and s.startswith("CE:")):
@@ -437,7 +444,7 @@ class Plotter:
 		chernoffs = GATED_CHERNOFFS_ID.copy() if gated else NON_GATED_CHERNOFFS_ID.copy()
 		cols = ['Arg', 'Rand', 'Regret']
 
-		fig, axes = plt.subplots(len(chernoffs), 3, figsize=(16, 5*len(chernoffs)), gridspec_kw={'width_ratios': [0.8, 1, 1]})
+		fig, axes = plt.subplots(len(chernoffs), 3, figsize=(15, 5*len(chernoffs)), gridspec_kw={'width_ratios': [1, 1, 1]})
 		global_title = f"Best‑Transform Metrics on Model: {model.name}\n" + model_str(n, rho, pi)
 		if self.eps: global_title = empty_string_except(global_title)
 		fig.suptitle(global_title, fontsize=14)
@@ -457,11 +464,12 @@ class Plotter:
 					sorted_TRANSFORMS = filter(lambda t: area_map[t] > 0.015, sorted_TRANSFORMS)
 					handles = [Patch(facecolor=TRANSFORMS_CMAP[t], label=f'{t.id}: {area_map[t]:.2f}') 
 							for t in sorted_TRANSFORMS]
-					ax.legend(title = 'Transforms: Area',
+					ax.legend(title = 'Selection Proportion:',
 						handles=handles, loc="upper left", handlelength=1, handleheight=1)
+					ax.set_title(f'Underlying Transformation Selection')
 				elif col == 'Rand':
 					norm = colors.Normalize(vmin=0, vmax=1, clip=True)
-					sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Reds')
+					sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Reds', cbar=False)
 
 					#mean_rand_transforms_map = {t: metrics[t]['Rand Avg'] for t in transforms}
 					#mean_rand_transforms_map[C] = metrics[f'{C}-Best Transform']['Rand Avg']
@@ -469,12 +477,27 @@ class Plotter:
 					#sorted_TRANSFORMS = sorted(transforms + [C], key=lambda t: mean_rand_transforms_map[t], reverse=True)
 					#handles = [Patch(facecolor=CMAP[t], label=f"{case(t).replace('_', ' ')}: {mean_rand_transforms_map[t]:.2f}") 
 					#		for t in sorted_TRANSFORMS]
-					handles = [Patch(facecolor=CMAP[C], label=f"{C.replace('_', ' ')} : {metrics[f'{C}-Best Transform']['Rand Avg']:.2f}     ")]
-					ax.legend(title = 'Transforms: Avg(Rand)', handles=handles, loc="upper left", handlelength=1, handleheight=1)
+					#handles = [Patch(facecolor=CMAP[C], label=f"{C.replace('_', ' ')} : {metrics[f'{C}-Best Transform']['Rand Avg']:.2f}     ")]
+					#ax.legend(title = 'Transforms: Avg(Rand)', handles=handles, loc="upper left", handlelength=1, handleheight=1)
+					avg_rand_index = f"Avg(ARI) = {metrics[f'{C}-Best Transform']['Rand Avg']:.2f}"
+					ax.legend(handles=[mpatches.Patch(facecolor='none', edgecolor='none', label=avg_rand_index)], loc="upper left", handlelength=0, handleheight=0)
+					ax.set_title(f'Adjusted Rand Index')
+
+					if i == 0:
+						cax = inset_axes(ax,
+										width="3%",      # width: 3% of parent_bbox width
+										height="30%",    # height: 30% of parent_bbox height
+										loc='upper right',
+										borderpad=1)
+
+						# Create colorbar manually
+						sm = plt.cm.ScalarMappable(cmap='Reds', norm=norm)
+						sm.set_array([])  # Only needed for older matplotlib versions
+						fig.colorbar(sm, cax=cax, ticks=[0.0, 0.5, 1.0], ticklocation='left')
 
 				else:
 					norm = colors.Normalize(vmin=0, vmax=1, clip=True)
-					sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Purples')
+					sns.heatmap(grid, ax=ax, norm=norm, cmap = 'Purples', cbar=False)
 					avg_regret =		f"Avg(Reg)              = {metrics[f'{C}-Best Transform']['Regret Avg']:.2f}"
 					area_positive_r = 	f"Area(Reg>0)        = {metrics[f'{C}-Best Transform']['Regret Area']:.2f}"
 					avg_positive_r = 	f"Avg(Reg[Reg>0]) = {metrics[f'{C}-Best Transform']['Regret Avg on Positive Regret']:.2f}"
@@ -485,9 +508,21 @@ class Plotter:
 
 					ax.legend(handles=[handle_avg, handle_area, handle_avg_positive_r], loc="upper left",
 							handlelength=0, handleheight=0)
+					ax.set_title(f'Regret')
+					if i == 0:
+						cax = inset_axes(ax,
+										width="3%",      # width: 3% of parent_bbox width
+										height="30%",    # height: 30% of parent_bbox height
+										loc='upper right',
+										borderpad=1)
 
-				title = f'{CHERNOFFS_ID_COSMETIC_MAP[C]}-Best Transform{": " + col if col != "Arg" else ""}'
-				ax.set_title(title)
+						# Create colorbar manually
+						sm = plt.cm.ScalarMappable(cmap='Purples', norm=norm)
+						sm.set_array([])  # Only needed for older matplotlib versions
+						fig.colorbar(sm, cax=cax, ticks=[0.0, 0.5, 1.0], ticklocation='left')
+
+				#title = f'{CHERNOFFS_ID_COSMETIC_MAP[C]}-Best Transform{": " + col if col != "Arg" else ""}'
+				#ax.set_title(title)
 
 				ticks = np.linspace(0, N, 5)
 				labels = np.linspace(0, 1, 5).round(2)
@@ -499,7 +534,7 @@ class Plotter:
 				if i == len(chernoffs) - 1:
 					ax.set_xlabel(f"{model.param_name}{sub('12')}", fontsize=12)
 				if j == 0:
-					ax.set_ylabel(f"{model.param_name}{sub('11')}", fontsize=12)
+					ax.set_ylabel(f"{CHERNOFFS_ID_COSMETIC_MAP[C]}-Optimal Transformation\n\n{model.param_name}{sub('11')}", fontsize=12)
 
 				for spine in ax.spines.values():
 					spine.set_visible(True)
@@ -515,7 +550,7 @@ class Plotter:
 		if transforms is None:
 			transforms = TRANSFORMS_EXT.copy()
 
-		fig, ax = plt.subplots(figsize=(8, 7))
+		fig, ax = plt.subplots(figsize=(8, 8))
 
 		# --- Plot base transforms ---
 		base_handles = []
@@ -526,9 +561,9 @@ class Plotter:
 				x, y,
 				marker='x', s=50,
 				color=CMAP[t],
-				label=getattr(t, 'id', str(t)).replace('_', ' ')
+				label=getattr(t, 'id', str(t)).replace('_', ' ') + f":\n{y:.3f}, {x:.2f}"
 			)
-			base_handles.append(h)
+			base_handles.append((h, y))
 
 		# --- Plot non-gated Chernoff ---
 		chernoffs_handles = []
@@ -561,7 +596,7 @@ class Plotter:
 
 		# Styling axes
 		ax.set_xlabel('Null Regret Ratio', fontsize=12)
-		ax.set_ylabel('Rand Avg',              fontsize=12)
+		ax.set_ylabel('Adjusted Rand Index', fontsize=12)
 		if rho is not None and pi is not None:
 			global_title = f"Transforms Rand Avg vs Null Regret Ratio on Model:\n{model.name} " + model_str(n, rho, pi)[:-1]
 		else:
@@ -576,14 +611,19 @@ class Plotter:
 		ax.axhline(y=y, color='k', linestyle='--')
 		ax.text(
 			0.5, y+0.05,
-			f"Avg(Rand Max): {y:.2f}",
+			f"Max ARI: {y:.3f}",
 			transform=ax.get_xaxis_transform(),
 			va='center', ha='center'
 		)
 
+		base_handles = sorted(base_handles, key=lambda hy: hy[1], reverse=True)
+		sorted_handles = [h for h, _ in base_handles]
+		sorted_labels  = [h.get_label() for h in sorted_handles]
+
 		# --- First legend: base transforms (bottom right) ---
 		leg1 = ax.legend(
-			handles=base_handles,
+			handles=sorted_handles,
+			labels=sorted_labels,
 			title="Transforms:",
 			loc="lower right",
 			frameon=True,
@@ -600,7 +640,7 @@ class Plotter:
 		leg2 = ax.legend(
 			handles=sorted_handles,
 			labels=sorted_labels,
-			title="t-Argmax ( C... ):\nRand Avg, NRR",
+			title="C-opt transform:\nARI, NRR",
 			loc="lower right",
 			frameon=True,
 			bbox_to_anchor=(0.609, 0, 0.2, 1),
@@ -1032,7 +1072,7 @@ class Plotter:
 									t = PowerTransform(1),
 									varying_param = 'rho',
 									varying_param_bounds = (0, 0.5),
-									h = np.array([1/4, 1/2, 1/4])):
+									h = np.array([1, 6, 15, 20, 15, 6, 1]) / 64):
 		
 		try:
 			if issubclass(varying_param, WeightTransform):
@@ -1120,8 +1160,8 @@ class Plotter:
 		ax.errorbar(params[idxs], mean[idxs], yerr=std[idxs], fmt='none', capsize=0, color = 'red')
 		ax.set_ylim(-0.1, 1.05)
 		ax.set_yticks(np.linspace(0, 1, 6))
-		ax.set_title('Rand Index')
-		ax.set_ylabel('Rand')
+		ax.set_title('Adjusted Rand Index')
+		ax.set_ylabel('ARI')
 
 		# 2)
 		ax = axes[0, 1]
@@ -1134,7 +1174,8 @@ class Plotter:
 				ax.errorbar(params[idxs + shift], mean[idxs + shift], 
 				yerr=std[idxs + shift], fmt='none', capsize=0, color = CHERNOFFS_CMAP[key])
 		ax.set_title('Chernoff Informations')
-		max_c = np.max(np.concatenate([metrics[key]['mean'] for key in ['C_true', 'C_graph', 'C_embed']]))
+		trim = lambda a, x: a[int(len(a)*x) : len(a) - int(len(a)*x)]
+		max_c = np.max(np.concatenate([trim(metrics[key]['mean'], 0.01) for key in ['C_true', 'C_graph', 'C_embed']]))
 
 		def round_to_25_two_sig(x):
 			if x == 0:
@@ -1199,7 +1240,9 @@ class Plotter:
 								   varying_param = 'rho',
 								   varying_param_bounds = (0, 0.5),
 								   shift_factor_x = 0, shift_factor_y = 0,
-								   scaling_factor_x = 1, scaling_factor_y = 1):
+								   scaling_factor_x = 1, scaling_factor_y = 1,
+								   h = np.array([1, 6, 15, 20, 15, 6, 1]) / 64,
+								   KDE = True):
 	
 		try:
 			if issubclass(varying_param, WeightTransform):
@@ -1307,6 +1350,38 @@ class Plotter:
 		limits  	= X.mean(axis=0) + scaling + shift
 		x_limits, y_limits = limits[:, 0], limits[:, 1]
 		xmin, xmax, ymin, ymax = x_limits[0], x_limits[1], y_limits[0], y_limits[1]
+
+		# --- 2) build a regular grid over that window ---
+		if KDE:
+			xi = np.linspace(xmin, xmax, 200)
+			yi = np.linspace(ymin, ymax, 200)
+			Xg, Yg = np.meshgrid(xi, yi)
+			grid = np.vstack([Xg.ravel(), Yg.ravel()])
+
+			my_Reds  = LinearSegmentedColormap.from_list('WhiteToRed',  [(0.0, '#ffffff'), (1.0, '#ff0000')])
+			my_Blues = LinearSegmentedColormap.from_list('WhiteToBlue', [(0.0, '#ffffff'), (1.0, '#0000ff')])
+
+			for label, cmap in zip(np.unique(Z), [my_Blues, my_Reds]):
+				Xc = X[Z == label]
+				if Xc.shape[0] < 3 or np.linalg.matrix_rank(np.cov(Xc.T)) < 2:
+					continue  # need at least 2 points for kde
+				kde = gaussian_kde(Xc.T, bw_method=1)
+				Zc = kde(grid).reshape(Xg.shape)
+
+				# optional: normalize each map so they’re on comparable scales
+				Zc /= Zc.max()
+
+				# --- 4) draw it under your points with some transparency ---
+				ax.imshow(
+					Zc,
+					origin='lower',
+					extent=[xmin, xmax, ymin, ymax],
+					cmap=cmap,
+					alpha=0.6,
+					aspect='auto'
+				)
+
+
 		ax.set_xlim(x_limits)
 		ax.set_ylim(y_limits)
 
@@ -1325,16 +1400,19 @@ class Plotter:
 
 		# 1) Rand Index
 		ax = axes_bottom[0]
-		ax.plot(params, metrics['Rand']['mean'], color = 'red', linewidth=0.5, alpha=0.5)
-		plot_embedding_metrics(ax, 'Rand', 'Rand', 'red')
+		rand_mean = convolve1d(metrics['Rand']['mean'], h, mode='reflect')
+		ax.plot(params, rand_mean, color = 'red', linewidth=0.5, alpha=0.5)
+		plot_embedding_metrics(ax, 'Rand', 'ARI', 'red')
 		ax.set_ylim(-0.1, 1.05)
 		ax.set_yticks(np.linspace(0, 1, 6))
 
 		ax = axes_bottom[1]
 		for key in ['C_true', 'C_graph', 'C_embed']:
-			ax.plot(params, metrics[key]['mean'], color = CHERNOFFS_CMAP[key], linewidth=0.5, alpha=0.5)
+			C_mean = convolve1d(metrics[key]['mean'], h, mode='reflect')
+			ax.plot(params, C_mean, color = CHERNOFFS_CMAP[key], linewidth=0.5, alpha=0.5)
 			plot_embedding_metrics(ax, key, key.replace('_', ' '), CHERNOFFS_CMAP[key])
-		max_c = np.max(np.concatenate([metrics[key]['mean'] for key in ['C_true', 'C_graph', 'C_embed']]))
+		trim = lambda a, x: a[int(len(a)*x) : len(a) - int(len(a)*x)]
+		max_c = np.max(np.concatenate([trim(metrics[key]['mean'], 0.01) for key in ['C_true', 'C_graph', 'C_embed']]))
 
 		def round_to_25_two_sig(x):
 			if x == 0:
@@ -1353,14 +1431,16 @@ class Plotter:
 
 		# 3) GMM Score
 		ax = axes_bottom[2]
-		ax.plot(params, metrics['GMM_score']['mean'], color = 'green', linewidth=0.5, alpha=0.5)
+		GMM_score_mean = convolve1d(metrics['GMM_score']['mean'], h, mode='reflect')
+		ax.plot(params, GMM_score_mean, color = 'green', linewidth=0.5, alpha=0.5)
 		plot_embedding_metrics(ax, 'GMM_score', 'GMM Score', 'green')
 		ax.set_ylim(-0.25, 5.25)
 		ax.set_yticks(np.linspace(0, 5, 6))
 
 		# 4) π₁ Estimate
 		ax = axes_bottom[3]
-		ax.plot(params, metrics['pi_1']['mean'], color = 'black', linewidth=0.5, alpha=0.5)
+		pi_1_mean = convolve1d(metrics['pi_1']['mean'], h, mode='reflect')
+		ax.plot(params, pi_1_mean, color = 'black', linewidth=0.5, alpha=0.5)
 		plot_embedding_metrics(ax, 'pi_1', 'Estimated π₁', 'black')
 		ax.set_ylim(-0.025, 0.525)
 		ax.set_yticks(np.linspace(0, 0.5, 6))
@@ -1386,12 +1466,13 @@ class Plotter:
 		percentage_out = mask_out.sum() / X.shape[0] * 100
 
 		Π_hat = list(np.sort(np.diag(G['Π_hat'])).round(2))
-		stats = [f"\nRI:   {G['Rand']:.2f}",
-					f"ΠẐ: {Π_hat}",
-					f"GS: {G['GMM_score']:.2f}",
-					f"CT:  {G['C_true']:.5f}",
-					f"CG: {G['C_graph']:.5f}",
-					f"CE:  {G['C_embed']:.5f}",
+		Π_hat = [f"{pi:.2f}" for pi in Π_hat]
+		stats = [f"\nARI:   {G['Rand']:.2f}",
+					f"ΠẐ:   {Π_hat}",
+					f"GS:   {G['GMM_score']:.2f}",
+					f"CT:    {G['C_true']:.5f}",
+					f"CG:   {G['C_graph']:.5f}",
+					f"CE:   {G['C_embed']:.5f}",
 					f'\n{percentage_out:.1f}% X outside']
 		
 		for stat in stats: ax_big.plot([], [], linestyle='', marker='', color='none', label=stat, alpha=0)
@@ -1419,7 +1500,10 @@ class Plotter:
 				  varying_param = 'rho',
 				  varying_param_bounds = (0, 0.5),
 				  shift_factor_x = 0, shift_factor_y = 0,
-				  scaling_factor_x = 1, scaling_factor_y = 1):
+				  scaling_factor_x = 1, scaling_factor_y = 1,
+				  fps = 32,
+				  KDE = True,
+				  generate_frames = True):
 		
 		varying_param_str = varying_param if isinstance(varying_param, str) else varying_param.__name__
 		name = f'{model.name}_{t.id}_{varying_param_str}_{varying_param_bounds[0]}_{varying_param_bounds[1]}'
@@ -1458,27 +1542,35 @@ class Plotter:
 		filenames = []
 
 		N = len(dico['graphs'])
-		for i in range(0, N, N // 10):
-			fig = self.plot_embedding_for_varying_param(i, dico,
-										model = model,
-										t = t,
-										varying_param = varying_param,
-										varying_param_bounds = varying_param_bounds,
-										shift_factor_x = shift_factor_x, shift_factor_y = shift_factor_y,
-								   		scaling_factor_x = scaling_factor_x, scaling_factor_y = scaling_factor_y)
-			
-			path = f'{self.folder_path}/Embedding_Gifs/Frames'
-			fname = f"frame_{i:03d}.png"
-			Path(path).mkdir(parents=True, exist_ok=True)
-			fig.savefig(f'{path}/{fname}', dpi=200)
-			plt.close(fig)
-			filenames.append(f'{path}/{fname}')
-
 		name = name.replace('.', '')
-		with imageio.get_writer(f'{self.folder_path}/Embedding_Gifs/{name}.gif', mode='I', fps=8) as writer:
-			for fname in filenames:
-				image = imageio.imread(fname)
-				writer.append_data(image)
+		if generate_frames:
+			for i in range(0, N):
+				fig = self.plot_embedding_for_varying_param(i, dico,
+											model = model,
+											t = t,
+											varying_param = varying_param,
+											varying_param_bounds = varying_param_bounds,
+											shift_factor_x = shift_factor_x, shift_factor_y = shift_factor_y,
+											scaling_factor_x = scaling_factor_x, scaling_factor_y = scaling_factor_y,
+											KDE = KDE)
+				
+				path = f'{self.folder_path}/Embedding_Gifs/Frames/{name}'
+				fname = f"frame_{i:03d}.png"
+				Path(path).mkdir(parents=True, exist_ok=True)
+				fig.savefig(f'{path}/{fname}', dpi=200)
+				plt.close(fig)
+				filenames.append(f'{path}/{fname}')
 
-		for fname in filenames:
-			os.remove(fname)
+		else:
+			filenames = [f'{self.folder_path}/Embedding_Gifs/Frames/frame_{i:03d}.png' for i in range(N)]
+
+		#name = name.replace('.', '')
+		#clip = ImageSequenceClip(filenames, fps=fps)
+		# plugin='ImageMagick' often gives better colors, or try program='ffmpeg'
+		#clip.write_gif(f'{self.folder_path}/Embedding_Gifs/{name}.gif', fps=fps, program='ffmpeg')
+
+		#name = name.replace('.', '')
+		#with imageio.get_writer(f'{self.folder_path}/Embedding_Gifs/{name}.gif', mode='I', fps=fps) as writer:
+		#	for fname in filenames:
+		#		image = imageio.imread(fname)
+		#		writer.append_data(image)

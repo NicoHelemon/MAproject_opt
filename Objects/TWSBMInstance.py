@@ -152,4 +152,6 @@ class TWSBMInstance:
 			res = minimize_scalar(neg_objective, bounds=(0, 1), method='bounded', args=(k, l))
 			c = min(c, -res.fun)
 
+		# /n because Σ_true = n * Σ_given_by_GMM_custering
+		# Could treat that better in the future
 		return c / n
