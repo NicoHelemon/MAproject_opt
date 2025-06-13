@@ -12,3 +12,6 @@ sqrt-scaled_p22_fixed/
 
 # large data files for gifs
 Computation/data_for_gifs/*.joblib
+
+# large data files for gifs
+Computation/data_for_gifs_old/*.joblib
